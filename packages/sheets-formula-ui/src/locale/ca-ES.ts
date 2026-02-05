@@ -111,6 +111,7 @@ const locale: typeof enUS = {
         operation: {
             copyFormulaOnly: 'Copia només la fórmula',
             pasteFormula: 'Enganxa la fórmula',
+            showFormula: 'Mostra fórmules',
         },
     },
 };

@@ -97,6 +97,10 @@ export class SheetSkeleton extends Skeleton {
         //
     }
 
+    getRenderRawFormula(): boolean {
+        return this._renderRawFormula;
+    }
+
     /**
      * @deprecated should never expose a property that is provided by another module!
      */

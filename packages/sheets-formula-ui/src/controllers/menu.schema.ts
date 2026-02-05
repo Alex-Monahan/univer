@@ -20,6 +20,7 @@ import { RibbonFormulasGroup } from '@univerjs/ui';
 import { SheetCopyFormulaOnlyCommand, SheetOnlyPasteFormulaCommand } from '../commands/commands/formula-clipboard.command';
 import { InsertFunctionOperation } from '../commands/operations/insert-function.operation';
 import { MoreFunctionsOperation } from '../commands/operations/more-functions.operation';
+import { ToggleShowFormulaOperation } from '../commands/operations/toggle-show-formula.operation';
 import {
     AllFunctionsMenuItemFactory,
     CopyFormulaOnlyMenuItemFactory,
@@ -35,6 +36,7 @@ import {
     InsertStatisticalFunctionMenuItemFactory,
     InsertTextFunctionMenuItemFactory,
     PasteFormulaMenuItemFactory,
+    ShowFormulaMenuItemFactory,
 } from './menu';
 
 export const menuSchema: MenuSchemaType = {
@@ -126,6 +128,10 @@ export const menuSchema: MenuSchemaType = {
                 order: 0,
                 menuItemFactory: AllFunctionsMenuItemFactory,
             },
+        },
+        [ToggleShowFormulaOperation.id]: {
+            order: 1,
+            menuItemFactory: ShowFormulaMenuItemFactory,
         },
     },
     [COPY_SPECIAL_MENU_ID]: {

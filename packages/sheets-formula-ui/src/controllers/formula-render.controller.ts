@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import { Inject, InterceptorEffectEnum, RxDisposable } from '@univerjs/core';
+import { IContextService, Inject, InterceptorEffectEnum, isFormulaId, isFormulaString, RxDisposable } from '@univerjs/core';
 import { extractFormulaError, FormulaDataModel } from '@univerjs/engine-formula';
+import { RENDER_RAW_FORMULA_KEY } from '@univerjs/engine-render';
 import { INTERCEPTOR_POINT, SheetInterceptorService } from '@univerjs/sheets';
 
 const FORMULA_ERROR_MARK = {
@@ -26,12 +27,29 @@ const FORMULA_ERROR_MARK = {
 };
 
 export class FormulaRenderManagerController extends RxDisposable {
+    private _renderRawFormula = false;
+
     constructor(
         @Inject(SheetInterceptorService) private readonly _sheetInterceptorService: SheetInterceptorService,
-        @Inject(FormulaDataModel) private readonly _formulaDataModel: FormulaDataModel
+        @Inject(FormulaDataModel) private readonly _formulaDataModel: FormulaDataModel,
+        @IContextService private readonly _contextService: IContextService
     ) {
         super();
 
+        this._initRenderRawFormulaListener();
+        this._initFormulaErrorMarker();
+        this._initRawFormulaInterceptor();
+    }
+
+    private _initRenderRawFormulaListener(): void {
+        this.disposeWithMe(
+            this._contextService.subscribeContextValue$(RENDER_RAW_FORMULA_KEY).subscribe((value) => {
+                this._renderRawFormula = value;
+            })
+        );
+    }
+
+    private _initFormulaErrorMarker(): void {
         this.disposeWithMe(this._sheetInterceptorService.intercept(
             INTERCEPTOR_POINT.CELL_CONTENT,
             {
@@ -64,6 +82,50 @@ export class FormulaRenderManagerController extends RxDisposable {
                     return next(cell);
                 },
                 priority: 10,
+            }
+        ));
+    }
+
+    private _initRawFormulaInterceptor(): void {
+        this.disposeWithMe(this._sheetInterceptorService.intercept(
+            INTERCEPTOR_POINT.CELL_CONTENT,
+            {
+                effect: InterceptorEffectEnum.Value,
+                handler: (cell, pos, next) => {
+                    if (!this._renderRawFormula) {
+                        return next(cell);
+                    }
+
+                    const rawCell = pos.rawData;
+                    if (!rawCell) {
+                        return next(cell);
+                    }
+
+                    let formulaString: string | null = null;
+
+                    if (isFormulaString(rawCell.f)) {
+                        formulaString = rawCell.f;
+                    } else if (isFormulaId(rawCell.si)) {
+                        formulaString = this._formulaDataModel.getFormulaStringByCell(
+                            pos.row,
+                            pos.col,
+                            pos.subUnitId,
+                            pos.unitId
+                        );
+                    }
+
+                    if (!formulaString) {
+                        return next(cell);
+                    }
+
+                    if (!cell || cell === rawCell) {
+                        cell = { ...rawCell };
+                    }
+
+                    cell.f = formulaString;
+                    return next(cell);
+                },
+                priority: 1,
             }
         ));
     }

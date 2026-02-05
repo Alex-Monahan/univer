@@ -111,6 +111,7 @@ const locale: typeof enUS = {
         operation: {
             copyFormulaOnly: 'کپی فقط فرمول',
             pasteFormula: 'چسباندن فرمول',
+            showFormula: 'نمایش فرمول‌ها',
         },
     },
 };

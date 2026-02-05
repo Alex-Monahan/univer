@@ -27,6 +27,7 @@ import { InsertFunctionOperation } from '../commands/operations/insert-function.
 import { MoreFunctionsOperation } from '../commands/operations/more-functions.operation';
 import { ReferenceAbsoluteOperation } from '../commands/operations/reference-absolute.operation';
 import { SearchFunctionOperation } from '../commands/operations/search-function.operation';
+import { ToggleShowFormulaOperation } from '../commands/operations/toggle-show-formula.operation';
 import { FormulaProgressBar } from '../views/formula-progress/FormulaProgress';
 import { MORE_FUNCTIONS_COMPONENT } from '../views/more-functions/interface';
 import { MoreFunctions } from '../views/more-functions/MoreFunctions';
@@ -79,6 +80,7 @@ export class FormulaUIController extends Disposable {
             HelpFunctionOperation,
             SelectEditorFormulaOperation,
             ReferenceAbsoluteOperation,
+            ToggleShowFormulaOperation,
         ].forEach((command) => this.disposeWithMe(this._commandService.registerCommand(command)));
     }
 

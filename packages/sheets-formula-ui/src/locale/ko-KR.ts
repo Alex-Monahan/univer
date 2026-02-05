@@ -111,6 +111,7 @@ const locale: typeof enUS = {
         operation: {
             copyFormulaOnly: '수식만 복사',
             pasteFormula: '수식 붙여넣기',
+            showFormula: '수식 표시',
         },
     },
 };

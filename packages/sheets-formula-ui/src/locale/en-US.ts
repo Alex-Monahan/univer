@@ -110,6 +110,7 @@ const locale = {
         operation: {
             copyFormulaOnly: 'Copy Formula Only',
             pasteFormula: 'Paste Formula',
+            showFormula: 'Show Formulas',
         },
     },
 };

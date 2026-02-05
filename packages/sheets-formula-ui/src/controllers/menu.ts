@@ -16,8 +16,9 @@
 
 import type { IAccessor } from '@univerjs/core';
 import type { IMenuItem, IValueOption } from '@univerjs/ui';
-import { UniverInstanceType } from '@univerjs/core';
+import { IContextService, UniverInstanceType } from '@univerjs/core';
 import { FunctionType } from '@univerjs/engine-formula';
+import { RENDER_RAW_FORMULA_KEY } from '@univerjs/engine-render';
 import {
     RangeProtectionPermissionEditPoint,
     RangeProtectionPermissionViewPoint,
@@ -34,6 +35,7 @@ import { combineLatestWith, map } from 'rxjs';
 import { SheetCopyFormulaOnlyCommand, SheetOnlyPasteFormulaCommand } from '../commands/commands/formula-clipboard.command';
 import { InsertFunctionOperation } from '../commands/operations/insert-function.operation';
 import { MoreFunctionsOperation } from '../commands/operations/more-functions.operation';
+import { ToggleShowFormulaOperation } from '../commands/operations/toggle-show-formula.operation';
 
 export function InsertCommonFunctionMenuItemFactory(accessor: IAccessor): IMenuItem {
     const commonFunctions = ['SUMIF', 'SUM', 'AVERAGE', 'IF', 'COUNT', 'SIN', 'MAX'];
@@ -127,6 +129,18 @@ export function AllFunctionsMenuItemFactory(accessor: IAccessor): IMenuItem {
             worksheetTypes: [WorksheetEditPermission, WorksheetSetCellValuePermission],
             rangeTypes: [RangeProtectionPermissionEditPoint],
         }),
+    };
+}
+
+export function ShowFormulaMenuItemFactory(accessor: IAccessor): IMenuItem {
+    const contextService = accessor.get(IContextService);
+
+    return {
+        id: ToggleShowFormulaOperation.id,
+        type: MenuItemType.BUTTON,
+        title: 'formula.operation.showFormula',
+        hidden$: getMenuHiddenObservable(accessor, UniverInstanceType.UNIVER_SHEET),
+        activated$: contextService.subscribeContextValue$(RENDER_RAW_FORMULA_KEY),
     };
 }
 

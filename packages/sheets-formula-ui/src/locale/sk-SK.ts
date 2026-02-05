@@ -111,6 +111,7 @@ const locale: typeof enUS = {
         operation: {
             copyFormulaOnly: 'Kopírovať iba vzorec',
             pasteFormula: 'Prilepiť vzorec',
+            showFormula: 'Zobraziť vzorce',
         },
     },
 };

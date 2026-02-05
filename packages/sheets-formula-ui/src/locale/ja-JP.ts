@@ -111,6 +111,7 @@ const locale: typeof enUS = {
         operation: {
             copyFormulaOnly: '数式のみをコピー',
             pasteFormula: '数式を貼り付け',
+            showFormula: '数式を表示',
         },
     },
 };

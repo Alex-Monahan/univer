@@ -515,19 +515,23 @@ export class Font extends SheetExtension {
         const paddingTop = padding.t ?? DEFAULT_PADDING_DATA.t;
         const paddingBottom = padding.b ?? DEFAULT_PADDING_DATA.b;
         const { vertexAngle = 0, wrapStrategy, cellData } = fontCache;
-        if (cellData?.v === undefined || cellData?.v === null) return;
-        const text = extractPureTextFromCell(cellData);
+        if (!cellData) return;
+        const renderRawFormula = renderFontCtx.spreadsheetSkeleton.getRenderRawFormula();
+        const hasRawFormula = renderRawFormula && typeof cellData.f === 'string' && cellData.f.length > 0;
+        if (!hasRawFormula && (cellData.v === undefined || cellData.v === null)) return;
+        const text = hasRawFormula ? cellData.f : extractPureTextFromCell(cellData);
         const { startX, startY, endX, endY } = renderFontCtx;
         const cellWidth = endX - startX - paddingLeft - paddingRight;
         const cellHeight = endY - startY - paddingTop - paddingBottom;
 
         // If the horizontal alignment is not specified, we need to determine it based on the cell value type.
         let hAlign = fontCache.horizontalAlign;
+        const cellValueType = hasRawFormula ? CellValueType.STRING : cellData.t;
         if (fontCache.horizontalAlign === HorizontalAlign.UNSPECIFIED) {
-            if (cellData.t === CellValueType.NUMBER || (!Tools.isDefine(cellData.t) && typeof cellData.v === 'number')) {
+            if (cellValueType === CellValueType.NUMBER || (!Tools.isDefine(cellValueType) && typeof cellData.v === 'number')) {
                 // If the cell value is a number, default to right alignment.
                 hAlign = HorizontalAlign.RIGHT;
-            } else if (cellData.t === CellValueType.BOOLEAN) {
+            } else if (cellValueType === CellValueType.BOOLEAN) {
                 // If the cell value is a boolean, default to center alignment.
                 hAlign = HorizontalAlign.CENTER;
             }
@@ -547,7 +551,7 @@ export class Font extends SheetExtension {
             strokeLine: Boolean(fontCache.style?.st?.s),
             underline: Boolean(fontCache.style?.ul?.s),
             underlineType: fontCache.style?.ul?.t,
-            cellValueType: cellData.t,
+            cellValueType,
         });
     }
 
