@@ -1,0 +1,145 @@
+<head>
+    <script type="importmap">
+        {
+            "imports": {
+                "@univerjs/themes": "/packages/themes/lib/es/index.js",
+                "@univerjs/core": "/packages/core/lib/es/index.js",
+                "@univerjs/core/facade": "/packages/core/lib/es/facade.js",
+                "@univerjs/design": "/packages/design/lib/es/index.js",
+                "@univerjs/docs": "/packages/docs/lib/es/index.js",
+                "@univerjs/docs-ui": "/packages/docs-ui/lib/es/index.js",
+                "@univerjs/drawing": "/packages/drawing/lib/es/index.js",
+                "@univerjs/engine-formula": "/packages/engine-formula/lib/es/index.js",
+                "@univerjs/engine-formula/facade": "/packages/engine-formula/lib/es/facade.js",
+                "@univerjs/engine-render": "/packages/engine-render/lib/es/index.js",
+                "@univerjs/rpc": "/packages/rpc/lib/es/index.js",
+                "@univerjs/sheets": "/packages/sheets/lib/es/index.js",
+                "@univerjs/sheets/facade": "/packages/sheets/lib/es/facade.js",
+                "@univerjs/sheets-formula": "/packages/sheets-formula/lib/es/index.js",
+                "@univerjs/sheets-numfmt": "/packages/sheets-numfmt/lib/es/index.js",
+                "@univerjs/sheets-ui": "/packages/sheets-ui/lib/es/index.js",
+                "@univerjs/telemetry": "/packages/telemetry/lib/es/index.js",
+                "@univerjs/ui": "/packages/ui/lib/es/index.js",
+                "@univerjs/protocol": "https://esm.sh/@univerjs/protocol",
+                "@univerjs/icons": "https://esm.sh/@univerjs/icons?deps=react,react-dom",
+                "@wendellhu/redi": "https://esm.sh/@wendellhu/redi",
+                "@wendellhu/redi/react-bindings": "https://esm.sh/@wendellhu/redi/react-bindings?deps=react,react-dom",
+                "@flatten-js/interval-tree": "https://esm.sh/@flatten-js/interval-tree@1.1.3",
+                "@floating-ui/dom": "https://esm.sh/@floating-ui/dom@1.7.4",
+                "@floating-ui/utils": "https://esm.sh/@floating-ui/utils@0.2.10",
+                "@floating-ui/utils/dom": "https://esm.sh/@floating-ui/utils@0.2.10/dom",
+                "@radix-ui/react-dialog": "https://esm.sh/@radix-ui/react-dialog@1.1.15?deps=react,react-dom",
+                "@radix-ui/react-dropdown-menu": "https://esm.sh/@radix-ui/react-dropdown-menu@2.1.16?deps=react,react-dom",
+                "@radix-ui/react-hover-card": "https://esm.sh/@radix-ui/react-hover-card@1.1.15?deps=react,react-dom",
+                "@radix-ui/react-popover": "https://esm.sh/@radix-ui/react-popover@1.1.15?deps=react,react-dom",
+                "@radix-ui/react-separator": "https://esm.sh/@radix-ui/react-separator@1.1.8?deps=react,react-dom",
+                "@radix-ui/react-slot": "https://esm.sh/@radix-ui/react-slot@1.2.4?deps=react,react-dom",
+                "cjk-regex": "https://esm.sh/cjk-regex@3.4.0",
+                "class-variance-authority": "https://esm.sh/class-variance-authority@0.7.1",
+                "clsx": "https://esm.sh/clsx",
+                "dayjs": "https://esm.sh/dayjs",
+                "decimal.js": "https://esm.sh/decimal.js@10.6.0",
+                "franc-min": "https://esm.sh/franc-min@6.2.0",
+                "opentype.js/dist/opentype.module": "https://esm.sh/opentype.js@1.3.4/dist/opentype.module.js",
+                "ot-json1": "https://esm.sh/ot-json1@1.0.2",
+                "react": "https://esm.sh/react",
+                "react/jsx-runtime": "https://esm.sh/react/jsx-runtime",
+                "react/jsx-dev-runtime": "https://esm.sh/react/jsx-dev-runtime",
+                "react-dom": "https://esm.sh/react-dom",
+                "react-dom/client": "https://esm.sh/react-dom/client",
+                "react-transition-group": "https://esm.sh/react-transition-group@4.4.5?deps=react,react-dom",
+                "rxjs": "https://esm.sh/rxjs",
+                "rxjs/operators": "https://esm.sh/rxjs/operators",
+                "sonner": "https://esm.sh/sonner@2.0.7?deps=react,react-dom",
+                "tailwind-merge": "https://esm.sh/tailwind-merge@2.6.0"
+            }
+        }
+    </script>
+
+    <link rel="stylesheet" href="/packages/design/lib/index.css" />
+    <link rel="stylesheet" href="/packages/ui/lib/index.css" />
+    <link rel="stylesheet" href="/packages/docs-ui/lib/index.css" />
+    <link rel="stylesheet" href="/packages/sheets-ui/lib/index.css" />
+    <link rel="stylesheet" href="/packages/sheets-formula-ui/lib/index.css" />
+    <link rel="stylesheet" href="/packages/sheets-numfmt-ui/lib/index.css" />
+
+    <style>
+        html,
+        body,
+        #root,
+        #app {
+            padding: 0;
+            margin: 0;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script type="module">
+        import { LocaleType, Univer, UniverInstanceType, mergeLocales } from '/packages/core/lib/es/index.js';
+        import { FUniver } from '/packages/core/lib/es/facade.js';
+        import { UniverDocsPlugin } from '/packages/docs/lib/es/index.js';
+        import { UniverDocsUIPlugin } from '/packages/docs-ui/lib/es/index.js';
+        import zhCNDocsUi from '/packages/docs-ui/lib/es/locale/zh-CN.js';
+        import { UniverFormulaEnginePlugin } from '/packages/engine-formula/lib/es/index.js';
+        import { UniverRenderEnginePlugin } from '/packages/engine-render/lib/es/index.js';
+        import { UniverSheetsPlugin } from '/packages/sheets/lib/es/index.js';
+        import zhCNSheets from '/packages/sheets/lib/es/locale/zh-CN.js';
+        import { UniverSheetsFormulaPlugin } from '/packages/sheets-formula/lib/es/index.js';
+        import { UniverSheetsFormulaUIPlugin } from '/packages/sheets-formula-ui/lib/es/index.js';
+        import zhCNSheetsFormulaUi from '/packages/sheets-formula-ui/lib/es/locale/zh-CN.js';
+        import { UniverSheetsNumfmtPlugin } from '/packages/sheets-numfmt/lib/es/index.js';
+        import { UniverSheetsNumfmtUIPlugin } from '/packages/sheets-numfmt-ui/lib/es/index.js';
+        import zhCNSheetsNumfmtUi from '/packages/sheets-numfmt-ui/lib/es/locale/zh-CN.js';
+        import { UniverSheetsUIPlugin } from '/packages/sheets-ui/lib/es/index.js';
+        import zhCNSheetsUi from '/packages/sheets-ui/lib/es/locale/zh-CN.js';
+        import { UniverUIPlugin } from '/packages/ui/lib/es/index.js';
+        import zhCNUi from '/packages/ui/lib/es/locale/zh-CN.js';
+        import zhCNDesign from '/packages/design/lib/es/locale/zh-CN.js';
+
+        import '/packages/engine-formula/lib/es/facade.js';
+        import '/packages/ui/lib/es/facade.js';
+        import '/packages/docs-ui/lib/es/facade.js';
+        import '/packages/sheets/lib/es/facade.js';
+        import '/packages/sheets-ui/lib/es/facade.js';
+        import '/packages/sheets-formula/lib/es/facade.js';
+        import '/packages/sheets-numfmt/lib/es/facade.js';
+
+        const univer = new Univer({
+            locale: LocaleType.ZH_CN,
+            locales: {
+                [LocaleType.ZH_CN]: mergeLocales(
+                    zhCNDesign,
+                    zhCNUi,
+                    zhCNDocsUi,
+                    zhCNSheets,
+                    zhCNSheetsUi,
+                    zhCNSheetsFormulaUi,
+                    zhCNSheetsNumfmtUi,
+                ),
+            },
+        });
+
+        univer.registerPlugin(UniverRenderEnginePlugin);
+        univer.registerPlugin(UniverFormulaEnginePlugin);
+        univer.registerPlugin(UniverUIPlugin, {
+            container: 'app',
+        });
+        univer.registerPlugin(UniverDocsPlugin);
+        univer.registerPlugin(UniverDocsUIPlugin);
+        univer.registerPlugin(UniverSheetsPlugin);
+        univer.registerPlugin(UniverSheetsUIPlugin);
+        univer.registerPlugin(UniverSheetsFormulaPlugin);
+        univer.registerPlugin(UniverSheetsFormulaUIPlugin);
+        univer.registerPlugin(UniverSheetsNumfmtPlugin);
+        univer.registerPlugin(UniverSheetsNumfmtUIPlugin);
+
+        univer.createUnit(UniverInstanceType.UNIVER_SHEET, {});
+
+        const univerAPI = FUniver.newAPI(univer);
+        window.univer = univer;
+        window.univerAPI = univerAPI;
+    </script>
+</body>

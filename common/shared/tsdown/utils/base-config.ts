@@ -15,17 +15,21 @@
  */
 
 import type { UserConfig } from 'tsdown';
-import type { IBuildContext, IBuildOptions } from '../types';
+import type { IBuildContext, IBuildOptions } from '../types.ts';
 import path from 'node:path';
 import vue from 'unplugin-vue/rolldown';
-import { DEFAULT_BROWSER_TARGET } from '../constants';
-import { hasSourceFiles } from './files';
+import { DEFAULT_BROWSER_TARGET } from '../constants.ts';
+import { createWorkspaceArtifactResolverPlugin } from '../plugins/workspace-artifact-resolver.ts';
+import { hasSourceFiles } from './files.ts';
 
 /**
  * Resolves extra bundler plugins based on the package source layout.
  */
-export function createInputPlugins(packageDir: string): any[] {
-    return hasSourceFiles(packageDir, '.vue') ? [vue()] : [];
+export function createInputPlugins(packageDir: string): NonNullable<UserConfig['plugins']> {
+    return [
+        createWorkspaceArtifactResolverPlugin(packageDir),
+        ...(hasSourceFiles(packageDir, '.vue') ? [vue()] : []),
+    ];
 }
 
 /**

@@ -15,12 +15,12 @@
  */
 
 /* eslint-disable max-lines-per-function */
-import type { IPackageJson } from '../types';
+import type { IPackageJson } from '../types.ts';
 import path from 'node:path';
 import fs from 'fs-extra';
 import sortKeys from 'sort-keys';
-import * as ts from 'typescript';
-import { peerDepsMap } from '../data/peer-deps';
+import ts from 'typescript';
+import { peerDepsMap } from '../data/peer-deps.ts';
 
 type StringMap = Record<string, string>;
 type PeerDepValue = (typeof peerDepsMap)[keyof typeof peerDepsMap] & { optional?: boolean };
@@ -284,6 +284,9 @@ function resolveUniverDependencyVersion(name: string) {
     return 'workspace:*';
 }
 
+// The dependency buckets are derived from actual source imports and the
+// shared peer-dependency registry, so the control flow is necessarily branched.
+// eslint-disable-next-line complexity
 function deriveDependencyGroups(packageDir: string, packageJson: IPackageJson): IDerivedDependencyGroups {
     const declaredDependencies = packageJson.dependencies ?? {};
     const declaredOptionalDependencies = (packageJson as CleanupPackageJson).optionalDependencies ?? {};

@@ -14,21 +14,24 @@
  * limitations under the License.
  */
 
-import type { TModuleFormat } from './configs/module';
-import type { IBuildContext, IBuildOptions } from './types';
+import type { TModuleFormat } from './configs/module.ts';
+import type { IBuildContext, IBuildOptions, IBuildPresetUMDOptions } from './types.ts';
 import { existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { build as tsdownBuild } from 'tsdown';
-import { createModuleConfig } from './configs/module';
-import { createUmdConfig } from './configs/umd';
-import { BUILD_OUTPUT_DIRECTORIES, BUILD_OUTPUT_ROOT, CLEANUP_DIRECTORIES } from './constants';
-import { createBaseConfig, createInputOptions, createInputPlugins } from './utils/base-config';
-import { cleanupPackageJson } from './utils/cleanup-pkg';
-import { getEntries } from './utils/entries';
-import { removeCssArtifacts } from './utils/files';
-import { createExternalPackages, readPackageJson } from './utils/package';
-import { emitPublishPackageJson } from './utils/publish-manifest';
+import { createModuleConfig } from './configs/module.ts';
+import { createUmdConfig } from './configs/umd.ts';
+import { BUILD_OUTPUT_DIRECTORIES, BUILD_OUTPUT_ROOT, CLEANUP_DIRECTORIES } from './constants.ts';
+import { createPresetUmdConfig } from './preset/config.ts';
+import { getPresetUMDEntries } from './preset/entries.ts';
+import { prependPresetUMDOutputs } from './preset/prepend.ts';
+import { createBaseConfig, createInputOptions, createInputPlugins } from './utils/base-config.ts';
+import { cleanupPackageJson } from './utils/cleanup-pkg.ts';
+import { getEntries } from './utils/entries.ts';
+import { removeCssArtifacts } from './utils/files.ts';
+import { createExternalPackages, readPackageJson } from './utils/package.ts';
+import { emitPublishPackageJson } from './utils/publish-manifest.ts';
 
 /**
  * Builds the shared context consumed by all output format factories.
@@ -113,4 +116,37 @@ export async function build(options: IBuildOptions = {}) {
     await Promise.all(configs.map((config) => tsdownBuild(config)));
     cleanupPackageJson(packageDir, context.packageJson);
     emitPublishPackageJson(packageDir);
+}
+
+export async function buildPresetUMD(options: IBuildPresetUMDOptions = {}) {
+    const packageDir = process.cwd();
+
+    if (options.cleanup) {
+        remove();
+    }
+
+    const packageJson = readPackageJson(packageDir);
+    const context: IBuildContext = {
+        entries: getPresetUMDEntries(packageDir),
+        externalPackages: createExternalPackages(packageJson),
+        facadeExternalPackages: [],
+        inputOptions: createInputOptions({}),
+        packageDir,
+        packageJson,
+        plugins: createInputPlugins(packageDir),
+    };
+    const baseConfig = createBaseConfig(context);
+    const enableObfuscation = packageJson.name.startsWith('@univerjs-pro/');
+    const configs = context.entries.map((entry) => createPresetUmdConfig({
+        baseConfig,
+        enableObfuscation,
+        entry,
+        outDir: BUILD_OUTPUT_DIRECTORIES.umd,
+        packageDir,
+        packageName: packageJson.name,
+        plugins: context.plugins,
+    }));
+
+    await Promise.all(configs.map((config) => tsdownBuild(config)));
+    prependPresetUMDOutputs(packageDir, options);
 }

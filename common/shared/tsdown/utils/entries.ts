@@ -14,10 +14,32 @@
  * limitations under the License.
  */
 
-import type { IEntryConfig } from '../types';
+import type { IEntryConfig } from '../types.ts';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_ENTRY_FILE, FACADE_ENTRY_FILE, LOCALE_DIRECTORY } from '../constants';
+import { DEFAULT_ENTRY_FILE, FACADE_ENTRY_FILE, LOCALE_DIRECTORIES, WORKER_ENTRY_FILE } from '../constants.ts';
+
+function appendLocaleEntries(entries: IEntryConfig[], packageDir: string, directory: string, keyPrefix: 'locale' | 'locales') {
+    const localeDir = path.join(packageDir, directory);
+
+    if (!existsSync(localeDir)) {
+        return;
+    }
+
+    for (const fileName of readdirSync(localeDir).sort((left, right) => left.localeCompare(right))) {
+        const fullPath = path.join(localeDir, fileName);
+
+        if (statSync(fullPath).isDirectory() || !fileName.endsWith('.ts') || !fileName.includes('-')) {
+            continue;
+        }
+
+        entries.push({
+            key: `${keyPrefix}/${fileName.replace(/\.ts$/, '')}`,
+            path: fullPath,
+            type: 'locale',
+        });
+    }
+}
 
 /**
  * Collects all canonical build entries for a package.
@@ -38,22 +60,16 @@ export function getEntries(packageDir: string): IEntryConfig[] {
         });
     }
 
-    const localeDir = path.join(packageDir, LOCALE_DIRECTORY);
-    if (!existsSync(localeDir)) {
-        return entries;
+    for (const localeDirectory of LOCALE_DIRECTORIES) {
+        appendLocaleEntries(entries, packageDir, localeDirectory, localeDirectory.endsWith('locales') ? 'locales' : 'locale');
     }
 
-    for (const fileName of readdirSync(localeDir).sort((left, right) => left.localeCompare(right))) {
-        const fullPath = path.join(localeDir, fileName);
-
-        if (statSync(fullPath).isDirectory() || !fileName.endsWith('.ts') || !fileName.includes('-')) {
-            continue;
-        }
-
+    const workerEntry = path.join(packageDir, WORKER_ENTRY_FILE);
+    if (existsSync(workerEntry)) {
         entries.push({
-            key: `locale/${fileName.replace(/\.ts$/, '')}`,
-            path: fullPath,
-            type: 'locale',
+            key: 'worker',
+            path: workerEntry,
+            type: 'index',
         });
     }
 

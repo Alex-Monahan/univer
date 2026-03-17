@@ -22,6 +22,13 @@ export interface IBuildOptions {
     nodeFirst?: boolean;
 }
 
+export interface IBuildPresetUMDOptions {
+    cleanup?: boolean;
+    umdAdditionalFiles?: string[];
+    umdAdditionalLocales?: string[];
+    umdDeps?: string[];
+}
+
 export type TEntryType = 'facade' | 'index' | 'locale';
 
 export interface IEntryConfig {
@@ -44,5 +51,5 @@ export interface IBuildContext {
     inputOptions?: NonNullable<UserConfig['inputOptions']>;
     packageDir: string;
     packageJson: IPackageJson;
-    plugins: any[];
+    plugins: NonNullable<UserConfig['plugins']>;
 }

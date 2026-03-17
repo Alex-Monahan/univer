@@ -3,6 +3,7 @@ packages:
     - examples
     - mockdata
     - packages/*
+    - presets/*
     - tests/*
 publicHoistPattern:
     - '@storybook/react'

@@ -17,6 +17,7 @@
         "./tsconfigs/*": "./tsconfigs/*.json",
         "./vitest": "./vitest/index.ts",
         "./esbuild": "./esbuild/index.ts",
+        "./preset-locales": "./preset-locales/index.ts",
         "./tailwind": "./tailwind/tailwind.config.ts",
         "./postcss": "./postcss/postcss.config.mjs",
         "./tsdown": "./tsdown/index.ts"

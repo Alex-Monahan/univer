@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import type { IPackageJson } from '../types';
+import type { IPackageJson } from '../types.ts';
 import { readFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import path from 'node:path';
 
 /**
@@ -32,6 +33,11 @@ export function createExternalPackages(packageJson: IPackageJson) {
     const dependencyNames = [
         ...Object.keys(packageJson.dependencies ?? {}),
         ...Object.keys(packageJson.peerDependencies ?? {}),
+        ...builtinModules.flatMap((moduleName) => {
+            return moduleName.startsWith('node:')
+                ? [moduleName, moduleName.replace(/^node:/, '')]
+                : [moduleName, `node:${moduleName}`];
+        }),
     ];
 
     return [...new Set(dependencyNames)]

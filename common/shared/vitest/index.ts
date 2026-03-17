@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
+import type { InlineConfig } from 'vitest/config';
 import { createRequire } from 'node:module';
 import { defineConfig, mergeConfig } from 'vitest/config';
 
 const require = createRequire(import.meta.url);
 const coverageProviderModule = require.resolve('@vitest/coverage-istanbul');
 
-export default function createConfig(options?: any) {
+export default function createConfig(options?: InlineConfig) {
     return defineConfig(mergeConfig({
         test: {
             testTimeout: 30_000,

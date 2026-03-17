@@ -25,10 +25,11 @@ export interface ICreateOutputAliasPluginOptions {
     copyToRoot: boolean;
     keepRootIndexCss: boolean;
     packageDir: string;
+    preserveCssAssets?: boolean;
 }
 
 export function createOutputAliasPlugin(options: ICreateOutputAliasPluginOptions) {
-    const { copyToRoot, keepRootIndexCss, packageDir } = options;
+    const { copyToRoot, keepRootIndexCss, packageDir, preserveCssAssets = false } = options;
 
     return {
         name: 'create-output-alias',
@@ -54,7 +55,7 @@ export function createOutputAliasPlugin(options: ICreateOutputAliasPluginOptions
                         cpSync(sourcePath, rootCssPath);
                     }
 
-                    if (existsSync(sourcePath)) {
+                    if (!preserveCssAssets && existsSync(sourcePath)) {
                         unlinkSync(sourcePath);
                     }
 

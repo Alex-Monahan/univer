@@ -1,0 +1,77 @@
+{
+    "name": "@univerjs/preset-sheets-drawing",
+    "version": "0.16.1",
+    "private": false,
+    "description": "",
+    "author": "DreamNum Co., Ltd. <developer@univer.ai>",
+    "license": "Apache-2.0",
+    "funding": {
+        "type": "opencollective",
+        "url": "https://opencollective.com/univer"
+    },
+    "homepage": "https://univer.ai",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dream-num/univer-presets"
+    },
+    "bugs": {
+        "url": "https://github.com/dream-num/univer-presets/issues"
+    },
+    "keywords": [
+        "univer",
+        "univer-preset"
+    ],
+    "sideEffects": [
+        "*.css"
+    ],
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*",
+        "./locales/*": "./src/locales/*.ts"
+    },
+    "publishConfig": {
+        "access": "public",
+        "main": "./lib/es/index.js",
+        "module": "./lib/es/index.js",
+        "exports": {
+            ".": {
+                "import": "./lib/es/index.js",
+                "require": "./lib/cjs/index.js",
+                "types": "./lib/types/index.d.ts"
+            },
+            "./*": {
+                "import": "./lib/es/*",
+                "require": "./lib/cjs/*",
+                "types": "./lib/types/index.d.ts"
+            },
+            "./lib/*": "./lib/*"
+        }
+    },
+    "main": "./src/index.ts",
+    "directories": {
+        "lib": "lib"
+    },
+    "files": [
+        "lib"
+    ],
+    "scripts": {
+        "prepare": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types prepare.ts",
+        "typecheck": "tsc --noEmit",
+        "build": "pnpm run prepare && node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build.ts"
+    },
+    "dependencies": {
+        "@univerjs/core": "workspace:*",
+        "@univerjs/docs-drawing": "workspace:*",
+        "@univerjs/drawing": "workspace:*",
+        "@univerjs/drawing-ui": "workspace:*",
+        "@univerjs/sheets-drawing": "workspace:*",
+        "@univerjs/sheets-drawing-ui": "workspace:*"
+    },
+    "devDependencies": {
+        "@univerjs-infra/shared": "workspace:*",
+        "react": "18.3.1",
+        "react-dom": "18.3.1",
+        "rxjs": "7.8.2",
+        "typescript": "^5.9.3"
+    }
+}
