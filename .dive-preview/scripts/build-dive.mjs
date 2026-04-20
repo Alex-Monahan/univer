@@ -35,6 +35,7 @@ const LOCALE_FILES = [
   "sheets-ui.enUS.js",
   "sheets-formula-ui.enUS.js",
   "sheets-numfmt-ui.enUS.js",
+  "sheets-filter-ui.enUS.js",
 ];
 
 // Load order mirrors examples/umd/sheets.html in the univer repo. Each package
@@ -56,6 +57,8 @@ const UNIVER_CORE = [
   "sheets-formula-ui.js",
   "sheets-numfmt.js",
   "sheets-numfmt-ui.js",
+  "sheets-filter.js",
+  "sheets-filter-ui.js",
 ];
 
 const UNIVER_FACADES = [
@@ -67,6 +70,7 @@ const UNIVER_FACADES = [
   "sheets-ui.facade.js",
   "sheets-formula.facade.js",
   "sheets-numfmt.facade.js",
+  "sheets-filter.facade.js",
 ];
 
 const CSS_FILES = [
@@ -76,6 +80,7 @@ const CSS_FILES = [
   "sheets-ui.css",
   "sheets-formula-ui.css",
   "sheets-numfmt-ui.css",
+  "sheets-filter-ui.css",
 ];
 
 function readVendor(name) {

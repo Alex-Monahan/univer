@@ -33,25 +33,26 @@ echo "=== univer packages ==="
 for pkg in \
     core telemetry rpc design engine-render engine-formula drawing \
     ui docs docs-ui sheets sheets-ui \
-    sheets-formula sheets-formula-ui sheets-numfmt sheets-numfmt-ui network
+    sheets-formula sheets-formula-ui sheets-numfmt sheets-numfmt-ui \
+    sheets-filter sheets-filter-ui network
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/index.js" "$pkg.js"
 done
 
 echo "=== facades ==="
-for pkg in core engine-formula ui docs-ui sheets sheets-ui sheets-formula sheets-numfmt
+for pkg in core engine-formula ui docs-ui sheets sheets-ui sheets-formula sheets-numfmt sheets-filter
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/facade.js" "$pkg.facade.js"
 done
 
 echo "=== en-US locales ==="
-for pkg in design ui docs-ui sheets sheets-ui sheets-formula-ui sheets-numfmt-ui
+for pkg in design ui docs-ui sheets sheets-ui sheets-formula-ui sheets-numfmt-ui sheets-filter-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/locale/en-US.js" "$pkg.enUS.js"
 done
 
 echo "=== CSS ==="
-for pkg in design ui docs-ui sheets-ui sheets-formula-ui sheets-numfmt-ui
+for pkg in design ui docs-ui sheets-ui sheets-formula-ui sheets-numfmt-ui sheets-filter-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/index.css" "$pkg.css"
 done

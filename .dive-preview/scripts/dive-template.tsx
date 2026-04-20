@@ -282,6 +282,17 @@ export default function UniverDive() {
   const hasSaved = typeof localStorage !== "undefined" && !!localStorage.getItem(STORAGE_KEY);
   const query = useSQLQuery(DEFAULT_QUERY, { enabled: !hasSaved });
 
+  // If the MotherDuck connection or query hangs (bad token, sandbox restrictions,
+  // worker blocked), we still want to show an empty grid after a short timeout
+  // instead of staring at "Loading data…" forever.
+  const [queryTimedOut, setQueryTimedOut] = useState(false);
+  useEffect(() => {
+    if (hasSaved) return;
+    if (!query.isLoading) return;
+    const t = setTimeout(() => setQueryTimedOut(true), 8000);
+    return () => clearTimeout(t);
+  }, [hasSaved, query.isLoading]);
+
   // step 1: load univer runtime
   useEffect(() => {
     let alive = true;
@@ -315,15 +326,23 @@ export default function UniverDive() {
       }
     }
     if (!snapshot) {
-      if (query.isLoading) {
+      if (query.isLoading && !queryTimedOut) {
         setBootMessage("Loading data from MotherDuck…");
         return;
       }
-      if (query.isError) {
-        setFatalError(
-          "MotherDuck query failed: " + (query.error?.message ?? "unknown"),
+      if (queryTimedOut) {
+        console.warn(
+          "[UniverDive] MotherDuck query did not resolve in 8s; rendering empty sheet.",
         );
-        return;
+      }
+      // Non-fatal: if the query errored (bad token, sandbox timing out, etc.)
+      // we still want the spreadsheet to render — just with an empty sheet.
+      // The user can paste data in or retry via devtools.
+      if (query.isError) {
+        console.warn(
+          "[UniverDive] MotherDuck query failed; rendering empty sheet:",
+          query.error?.message ?? query.error,
+        );
       }
       const rows = Array.isArray(query.data) ? (query.data as Row[]) : [];
       snapshot = buildSnapshot(rows);
@@ -335,7 +354,7 @@ export default function UniverDive() {
       console.error("[UniverDive] init failed", e);
       setFatalError(String(e?.stack ?? e?.message ?? e));
     }
-  }, [runtimeReady, query.data, query.isLoading, query.isError]);
+  }, [runtimeReady, query.data, query.isLoading, query.isError, queryTimedOut]);
 
   function initUniver(snapshot: any) {
     const g: any = window;
@@ -352,6 +371,8 @@ export default function UniverDive() {
     const { UniverSheetsFormulaUIPlugin } = g.UniverSheetsFormulaUi;
     const { UniverSheetsNumfmtPlugin } = g.UniverSheetsNumfmt;
     const { UniverSheetsNumfmtUIPlugin } = g.UniverSheetsNumfmtUi;
+    const { UniverSheetsFilterPlugin } = g.UniverSheetsFilter;
+    const { UniverSheetsFilterUIPlugin } = g.UniverSheetsFilterUi;
 
     const univer = new Univer({
       locale: LocaleType.EN_US,
@@ -364,6 +385,7 @@ export default function UniverDive() {
           g.UniverSheetsUiEnUS,
           g.UniverSheetsFormulaUiEnUS,
           g.UniverSheetsNumfmtUiEnUS,
+          g.UniverSheetsFilterUiEnUS,
         ),
       },
     });
@@ -379,6 +401,14 @@ export default function UniverDive() {
     univer.registerPlugin(UniverSheetsFormulaUIPlugin);
     univer.registerPlugin(UniverSheetsNumfmtPlugin);
     univer.registerPlugin(UniverSheetsNumfmtUIPlugin);
+    // Filter: adds the funnel icon to the toolbar (Start tab) so users can
+    // toggle auto-filter on/off on the current selection.
+    univer.registerPlugin(UniverSheetsFilterPlugin);
+    univer.registerPlugin(UniverSheetsFilterUIPlugin, {
+      // Avoid the RPC worker for computing distinct filter values — we don't
+      // run a worker in this dive.
+      useRemoteFilterValuesGenerator: false,
+    });
 
     univer.createUnit(UniverInstanceType.UNIVER_SHEET, snapshot);
     const api = FUniver.newAPI(univer);
