@@ -97,3 +97,49 @@ test("query-mode source binds to a univer table and lands in localStorage", asyn
 
   expect(pageErrors).toEqual([]);
 });
+
+test("large source (>default sheet rowCount) grows the sheet and binds", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+
+  await page.goto("/");
+
+  const container = page.getByTestId("univer-container");
+  await expect(container).toBeVisible();
+  await expect(async () => {
+    expect(await container.locator("canvas").count()).toBeGreaterThan(0);
+  }).toPass({ timeout: 45_000 });
+
+  const addBtn = page.getByTestId("add-source-button");
+  await expect(addBtn).toBeVisible();
+  await addBtn.click();
+  await page.getByLabel(/SQL query/).check();
+  await page
+    .getByPlaceholder("Source name (used as the tab/storage key)")
+    .fill("dive_big_src");
+  // 2000-row result — exceeds the seed sheet's default rowCount of 100.
+  await page
+    .locator("textarea")
+    .fill(
+      "SELECT i AS id, 'row-' || i AS label FROM range(1, 2001) t(i)",
+    );
+  await page.getByRole("button", { name: /Probe columns/ }).click();
+  await expect(page.locator("label", { hasText: "id" }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: /^Create$/ }).click();
+  await expect(page.locator("textarea")).toHaveCount(0, { timeout: 45_000 });
+
+  const tableCount = await page.evaluate(() => {
+    const api = (window as any).univerAPI;
+    const wb = api?.getActiveWorkbook?.();
+    return (wb?.getTableList?.() ?? []).length;
+  });
+  expect(tableCount).toBeGreaterThanOrEqual(1);
+
+  // Range-out-of-bounds would have surfaced as a pageerror or broken the
+  // table registration. Both assertions above would have failed.
+  expect(pageErrors).toEqual([]);
+});

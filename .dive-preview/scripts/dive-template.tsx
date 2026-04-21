@@ -715,6 +715,28 @@ function handleCellMutation(api: any, params: any): void {
 }
 
 // ---------- bind source → sheet ----------
+// Grow the sheet to accommodate a future write at [startRow..startRow+numRows)
+// × [startCol..startCol+numCols). Univer raises "Range is out of bounds" if
+// setValues exceeds the sheet's current max rows/columns.
+function ensureSheetCapacity(
+  ws: any,
+  startRow: number,
+  startCol: number,
+  numRows: number,
+  numCols: number,
+): void {
+  const neededRows = startRow + numRows;
+  const neededCols = startCol + numCols;
+  const maxRows = ws.getMaxRows?.() ?? 0;
+  const maxCols = ws.getMaxColumns?.() ?? 0;
+  if (neededRows > maxRows) {
+    ws.insertRowsAfter?.(Math.max(0, maxRows - 1), neededRows - maxRows);
+  }
+  if (neededCols > maxCols) {
+    ws.insertColumnsAfter?.(Math.max(0, maxCols - 1), neededCols - maxCols);
+  }
+}
+
 async function addTableToSheet(
   api: any,
   runSql: RunSql,
@@ -738,6 +760,8 @@ async function addTableToSheet(
   for (const r of rows) {
     values.push(columns.map((c) => coerceCell(r?.[c])));
   }
+
+  ensureSheetCapacity(ws, startRow, startCol, values.length, columns.length);
 
   const range = ws.getRange(startRow, startCol, values.length, columns.length);
   range.setValues(values);
@@ -845,6 +869,13 @@ async function refreshSource(
   );
   clearRange.setValues?.(blank);
 
+  ensureSheetCapacity(
+    ws,
+    startRow,
+    startCol,
+    newValues.length,
+    colsToUse.length,
+  );
   ws.getRange(startRow, startCol, newValues.length, colsToUse.length).setValues(
     newValues,
   );
