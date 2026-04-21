@@ -373,6 +373,14 @@ export default function UniverDive() {
     const { UniverSheetsNumfmtUIPlugin } = g.UniverSheetsNumfmtUi;
     const { UniverSheetsFilterPlugin } = g.UniverSheetsFilter;
     const { UniverSheetsFilterUIPlugin } = g.UniverSheetsFilterUi;
+    const { UniverSheetsSortPlugin } = g.UniverSheetsSort;
+    const { UniverSheetsSortUIPlugin } = g.UniverSheetsSortUi;
+    const { UniverSheetsZenEditorPlugin } = g.UniverSheetsZenEditor;
+    const { UniverDataValidationPlugin } = g.UniverDataValidation;
+    const { UniverSheetsDataValidationPlugin } = g.UniverSheetsDataValidation;
+    const { UniverSheetsDataValidationUIPlugin } = g.UniverSheetsDataValidationUi;
+    const { UniverSheetsConditionalFormattingPlugin } = g.UniverSheetsConditionalFormatting;
+    const { UniverSheetsConditionalFormattingUIPlugin } = g.UniverSheetsConditionalFormattingUi;
 
     const univer = new Univer({
       locale: LocaleType.EN_US,
@@ -386,6 +394,10 @@ export default function UniverDive() {
           g.UniverSheetsFormulaUiEnUS,
           g.UniverSheetsNumfmtUiEnUS,
           g.UniverSheetsFilterUiEnUS,
+          g.UniverSheetsSortUiEnUS,
+          g.UniverSheetsZenEditorEnUS,
+          g.UniverSheetsDataValidationUiEnUS,
+          g.UniverSheetsConditionalFormattingUiEnUS,
         ),
       },
     });
@@ -409,6 +421,21 @@ export default function UniverDive() {
       // run a worker in this dive.
       useRemoteFilterValuesGenerator: false,
     });
+    // Sort: adds ascending/descending toolbar buttons + a multi-key sort dialog.
+    univer.registerPlugin(UniverSheetsSortPlugin);
+    univer.registerPlugin(UniverSheetsSortUIPlugin);
+    // Zen editor: full-screen single-cell editor (double-click / expand action).
+    univer.registerPlugin(UniverSheetsZenEditorPlugin);
+    // Data validation: dropdown lists, number/date ranges, checkboxes, custom
+    // formula rules. The base package is the shared substrate; sheets-*
+    // specializes it and the UI plugin provides the dialogs and cell overlays.
+    univer.registerPlugin(UniverDataValidationPlugin);
+    univer.registerPlugin(UniverSheetsDataValidationPlugin);
+    univer.registerPlugin(UniverSheetsDataValidationUIPlugin);
+    // Conditional formatting: color scales, data bars, icon sets, highlight
+    // rules with a manager dialog in the Start tab.
+    univer.registerPlugin(UniverSheetsConditionalFormattingPlugin);
+    univer.registerPlugin(UniverSheetsConditionalFormattingUIPlugin);
 
     univer.createUnit(UniverInstanceType.UNIVER_SHEET, snapshot);
     const api = FUniver.newAPI(univer);

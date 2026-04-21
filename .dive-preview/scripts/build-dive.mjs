@@ -36,6 +36,10 @@ const LOCALE_FILES = [
   "sheets-formula-ui.enUS.js",
   "sheets-numfmt-ui.enUS.js",
   "sheets-filter-ui.enUS.js",
+  "sheets-sort-ui.enUS.js",
+  "sheets-zen-editor.enUS.js",
+  "sheets-data-validation-ui.enUS.js",
+  "sheets-conditional-formatting-ui.enUS.js",
 ];
 
 // Load order mirrors examples/umd/sheets.html in the univer repo. Each package
@@ -53,12 +57,20 @@ const UNIVER_CORE = [
   "docs-ui.js",
   "sheets.js",
   "sheets-ui.js",
+  "sheets-zen-editor.js",
   "sheets-formula.js",
   "sheets-formula-ui.js",
   "sheets-numfmt.js",
   "sheets-numfmt-ui.js",
   "sheets-filter.js",
   "sheets-filter-ui.js",
+  "sheets-sort.js",
+  "sheets-sort-ui.js",
+  "data-validation.js",
+  "sheets-data-validation.js",
+  "sheets-data-validation-ui.js",
+  "sheets-conditional-formatting.js",
+  "sheets-conditional-formatting-ui.js",
 ];
 
 const UNIVER_FACADES = [
@@ -71,6 +83,10 @@ const UNIVER_FACADES = [
   "sheets-formula.facade.js",
   "sheets-numfmt.facade.js",
   "sheets-filter.facade.js",
+  "sheets-sort.facade.js",
+  "sheets-zen-editor.facade.js",
+  "sheets-data-validation.facade.js",
+  "sheets-conditional-formatting.facade.js",
 ];
 
 const CSS_FILES = [
@@ -81,6 +97,10 @@ const CSS_FILES = [
   "sheets-formula-ui.css",
   "sheets-numfmt-ui.css",
   "sheets-filter-ui.css",
+  "sheets-sort-ui.css",
+  "sheets-zen-editor.css",
+  "sheets-data-validation-ui.css",
+  "sheets-conditional-formatting-ui.css",
 ];
 
 function readVendor(name) {

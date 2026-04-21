@@ -34,25 +34,41 @@ for pkg in \
     core telemetry rpc design engine-render engine-formula drawing \
     ui docs docs-ui sheets sheets-ui \
     sheets-formula sheets-formula-ui sheets-numfmt sheets-numfmt-ui \
-    sheets-filter sheets-filter-ui network
+    sheets-filter sheets-filter-ui \
+    sheets-sort sheets-sort-ui \
+    sheets-zen-editor \
+    data-validation sheets-data-validation sheets-data-validation-ui \
+    sheets-conditional-formatting sheets-conditional-formatting-ui \
+    network
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/index.js" "$pkg.js"
 done
 
 echo "=== facades ==="
-for pkg in core engine-formula ui docs-ui sheets sheets-ui sheets-formula sheets-numfmt sheets-filter
+for pkg in \
+    core engine-formula ui docs-ui sheets sheets-ui \
+    sheets-formula sheets-numfmt sheets-filter sheets-sort \
+    sheets-zen-editor sheets-data-validation sheets-conditional-formatting
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/facade.js" "$pkg.facade.js"
 done
 
 echo "=== en-US locales ==="
-for pkg in design ui docs-ui sheets sheets-ui sheets-formula-ui sheets-numfmt-ui sheets-filter-ui
+for pkg in \
+    design ui docs-ui sheets sheets-ui \
+    sheets-formula-ui sheets-numfmt-ui sheets-filter-ui \
+    sheets-sort-ui sheets-zen-editor \
+    sheets-data-validation-ui sheets-conditional-formatting-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/locale/en-US.js" "$pkg.enUS.js"
 done
 
 echo "=== CSS ==="
-for pkg in design ui docs-ui sheets-ui sheets-formula-ui sheets-numfmt-ui sheets-filter-ui
+for pkg in \
+    design ui docs-ui sheets-ui \
+    sheets-formula-ui sheets-numfmt-ui sheets-filter-ui \
+    sheets-sort-ui sheets-zen-editor \
+    sheets-data-validation-ui sheets-conditional-formatting-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/index.css" "$pkg.css"
 done
