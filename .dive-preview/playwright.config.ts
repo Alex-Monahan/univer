@@ -9,5 +9,14 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
+  // Boot the Vite dev server automatically. Inherits process env, so
+  // VITE_MOTHERDUCK_TOKEN from the caller's shell flows through to the
+  // browser build.
+  webServer: {
+    command: "npm run dev",
+    port: 5173,
+    reuseExistingServer: true,
+    timeout: 60_000,
+  },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

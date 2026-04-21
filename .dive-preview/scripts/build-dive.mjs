@@ -40,6 +40,7 @@ const LOCALE_FILES = [
   "sheets-zen-editor.enUS.js",
   "sheets-data-validation-ui.enUS.js",
   "sheets-conditional-formatting-ui.enUS.js",
+  "sheets-table-ui.enUS.js",
 ];
 
 // Load order mirrors examples/umd/sheets.html in the univer repo. Each package
@@ -71,6 +72,8 @@ const UNIVER_CORE = [
   "sheets-data-validation-ui.js",
   "sheets-conditional-formatting.js",
   "sheets-conditional-formatting-ui.js",
+  "sheets-table.js",
+  "sheets-table-ui.js",
 ];
 
 const UNIVER_FACADES = [
@@ -87,6 +90,7 @@ const UNIVER_FACADES = [
   "sheets-zen-editor.facade.js",
   "sheets-data-validation.facade.js",
   "sheets-conditional-formatting.facade.js",
+  "sheets-table.facade.js",
 ];
 
 const CSS_FILES = [
@@ -101,6 +105,7 @@ const CSS_FILES = [
   "sheets-zen-editor.css",
   "sheets-data-validation-ui.css",
   "sheets-conditional-formatting-ui.css",
+  "sheets-table-ui.css",
 ];
 
 function readVendor(name) {

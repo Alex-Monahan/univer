@@ -39,6 +39,7 @@ for pkg in \
     sheets-zen-editor \
     data-validation sheets-data-validation sheets-data-validation-ui \
     sheets-conditional-formatting sheets-conditional-formatting-ui \
+    sheets-table sheets-table-ui \
     network
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/index.js" "$pkg.js"
@@ -48,7 +49,8 @@ echo "=== facades ==="
 for pkg in \
     core engine-formula ui docs-ui sheets sheets-ui \
     sheets-formula sheets-numfmt sheets-filter sheets-sort \
-    sheets-zen-editor sheets-data-validation sheets-conditional-formatting
+    sheets-zen-editor sheets-data-validation sheets-conditional-formatting \
+    sheets-table
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/facade.js" "$pkg.facade.js"
 done
@@ -58,7 +60,8 @@ for pkg in \
     design ui docs-ui sheets sheets-ui \
     sheets-formula-ui sheets-numfmt-ui sheets-filter-ui \
     sheets-sort-ui sheets-zen-editor \
-    sheets-data-validation-ui sheets-conditional-formatting-ui
+    sheets-data-validation-ui sheets-conditional-formatting-ui \
+    sheets-table-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/umd/locale/en-US.js" "$pkg.enUS.js"
 done
@@ -68,7 +71,8 @@ for pkg in \
     design ui docs-ui sheets-ui \
     sheets-formula-ui sheets-numfmt-ui sheets-filter-ui \
     sheets-sort-ui sheets-zen-editor \
-    sheets-data-validation-ui sheets-conditional-formatting-ui
+    sheets-data-validation-ui sheets-conditional-formatting-ui \
+    sheets-table-ui
 do
   fetch "https://unpkg.com/@univerjs/$pkg@$UNIVER_VERSION/lib/index.css" "$pkg.css"
 done
