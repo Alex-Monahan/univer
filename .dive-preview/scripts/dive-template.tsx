@@ -23,25 +23,46 @@ function useImperativeSql(): {
   const [sql, setSql] = useState<string | null>(null);
   const resolverRef = useRef<((rows: any[]) => void) | null>(null);
   const rejecterRef = useRef<((err: Error) => void) | null>(null);
+  // Gate: the first render after setSql(newQuery) still reflects the PREVIOUS
+  // query's success+data (useSQLQuery falls back to lastData and hasn't yet
+  // transitioned to loading). Resolving on that stale snapshot returns wrong
+  // rows — e.g. a DESCRIBE result handed back as the NDV query's result.
+  // Require the inner hook to be observed in isLoading for the current
+  // dispatch before any resolve/reject is allowed.
+  const loadingSeenRef = useRef(false);
 
   const result = useSQLQuery(sql ?? "SELECT 1", { enabled: sql != null });
 
   useEffect(() => {
     if (sql == null) return;
+    if (result.isLoading) {
+      loadingSeenRef.current = true;
+      return;
+    }
+    if (!loadingSeenRef.current) return;
     if (result.isSuccess && result.data !== undefined) {
       const resolve = resolverRef.current;
       resolverRef.current = null;
       rejecterRef.current = null;
+      loadingSeenRef.current = false;
       setSql(null);
       resolve?.(result.data as any[]);
     } else if (result.isError) {
       const reject = rejecterRef.current;
       resolverRef.current = null;
       rejecterRef.current = null;
+      loadingSeenRef.current = false;
       setSql(null);
       reject?.(result.error ?? new Error("SQL query failed"));
     }
-  }, [sql, result.isSuccess, result.isError, result.data, result.error]);
+  }, [
+    sql,
+    result.isLoading,
+    result.isSuccess,
+    result.isError,
+    result.data,
+    result.error,
+  ]);
 
   const run = useCallback(
     (nextSql: string) =>
@@ -52,6 +73,7 @@ function useImperativeSql(): {
         }
         resolverRef.current = resolve;
         rejecterRef.current = reject;
+        loadingSeenRef.current = false;
         setSql(nextSql);
       }),
     [],
@@ -83,6 +105,7 @@ type DirectSource = {
   schema: string;
   table: string;
   pkColumns: string[];
+  pkTypes?: Record<string, string>;
   storageKey: string;
 };
 type QuerySource = {
@@ -90,6 +113,7 @@ type QuerySource = {
   sql: string;
   name: string;
   pkColumns: string[];
+  pkTypes?: Record<string, string>;
   storageKey: string;
 };
 type SourceMeta = DirectSource | QuerySource;
@@ -158,6 +182,18 @@ function buildInsertSql(
     .join(", ")}) VALUES (${cols.map((c) => sqlLiteral(row[c])).join(", ")});`;
 }
 
+function buildDeleteSql(
+  source: DirectSource,
+  pk: Record<string, unknown>,
+): string {
+  const where = source.pkColumns
+    .map((c) => `${quoteIdent(c)} = ${sqlLiteral(pk[c])}`)
+    .join(" AND ");
+  return `DELETE FROM ${quoteIdent(source.database)}.${quoteIdent(
+    source.schema,
+  )}.${quoteIdent(source.table)} WHERE ${where};`;
+}
+
 // ---------- localStorage helpers ----------
 function readSourcesRegistry(): SourcesRegistry {
   try {
@@ -210,31 +246,121 @@ function pkKeyOf(pkColumns: string[], row: Record<string, unknown>): string {
   return JSON.stringify(pkColumns.map((c) => row[c] ?? null));
 }
 
+// Generate a random PK value matching a DuckDB column type. Used to pre-fill
+// PK cells on newly-inserted rows so uniqueness is guaranteed before the user
+// types anything (and before any INSERT is staged).
+function generatePkValue(columnType: string): string | number {
+  const t = (columnType || "").toUpperCase();
+  const uuid = (): string =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) +
+        Math.random().toString(36).slice(2);
+  if (/\b(TIMESTAMP|DATETIME)\b/.test(t)) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const y = 2030 + Math.floor(Math.random() * 50);
+    const mo = 1 + Math.floor(Math.random() * 12);
+    const d = 1 + Math.floor(Math.random() * 28);
+    const h = Math.floor(Math.random() * 24);
+    const mi = Math.floor(Math.random() * 60);
+    const s = Math.floor(Math.random() * 60);
+    return `${y}-${pad(mo)}-${pad(d)} ${pad(h)}:${pad(mi)}:${pad(s)}`;
+  }
+  if (/\bDATE\b/.test(t)) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const y = 2030 + Math.floor(Math.random() * 50);
+    const mo = 1 + Math.floor(Math.random() * 12);
+    const d = 1 + Math.floor(Math.random() * 28);
+    return `${y}-${pad(mo)}-${pad(d)}`;
+  }
+  if (/\b(DOUBLE|FLOAT|REAL|DECIMAL|NUMERIC)\b/.test(t)) {
+    return Math.random() * 1e6;
+  }
+  if (
+    /\b(BIGINT|HUGEINT|INTEGER|INT|SMALLINT|TINYINT|UBIGINT|UINTEGER|USMALLINT|UTINYINT)\b/.test(
+      t,
+    )
+  ) {
+    // 10-digit integer in [1_000_000_000, 9_999_999_999].
+    return Math.floor(1e9 + Math.random() * 9e9);
+  }
+  // VARCHAR/TEXT/STRING/CHAR/UUID/JSON/BLOB and unknown types → UUID string.
+  return uuid();
+}
+
+// Programmatic-write guard.
+//
+// Every source-data paint the dive performs (initial bind, refresh, PK
+// auto-fill) goes through Univer's set-range-values command — exactly the
+// same command path as a user edit. Without a gate, every refreshed cell
+// would trip the PK-incomplete veto, get logged as a would-update, and
+// ensureSheetCapacity's insertRows would re-enter autoFillNewRowPks on the
+// half-written table and corrupt state.
+//
+// Wrap programmatic writes in runProgrammatic (or runProgrammaticSync) to
+// bump the depth counter. Every edit-tracking listener consults
+// isProgrammaticWrite() at entry and no-ops while the counter is > 0. This
+// gives refresh / bind a clean logical separation from user-driven row edits
+// without littering the code with per-path suppression flags.
+let programmaticWriteDepth = 0;
+
+function isProgrammaticWrite(): boolean {
+  return programmaticWriteDepth > 0;
+}
+
+async function runProgrammatic<T>(fn: () => T | Promise<T>): Promise<T> {
+  programmaticWriteDepth++;
+  try {
+    return await fn();
+  } finally {
+    programmaticWriteDepth--;
+  }
+}
+
+function runProgrammaticSync<T>(fn: () => T): T {
+  programmaticWriteDepth++;
+  try {
+    return fn();
+  } finally {
+    programmaticWriteDepth--;
+  }
+}
+
 // ---------- MotherDuck imperative helpers (via useImperativeSql) ----------
 async function probeSource(
   runSql: RunSql,
   spec: SourceMeta,
-): Promise<{ columns: string[]; ndv: Record<string, number> }> {
+): Promise<{
+  columns: string[];
+  ndv: Record<string, number>;
+  types: Record<string, string>;
+}> {
   const sub = `(${buildSourceSql(spec)})`;
   const descRows = await runSql(`DESCRIBE ${sub}`);
-  const columns: string[] = descRows
-    .map((r: any) => String(r.column_name ?? r.Column ?? ""))
-    .filter(Boolean);
-  if (columns.length === 0) return { columns: [], ndv: {} };
+  const columns: string[] = [];
+  const types: Record<string, string> = {};
+  for (const r of descRows as any[]) {
+    const name = String(r.column_name ?? r.Column ?? "");
+    if (!name) continue;
+    columns.push(name);
+    types[name] = String(r.column_type ?? r.Type ?? "");
+  }
+  if (columns.length === 0) return { columns: [], ndv: {}, types };
+  // Positional aliases (ndv_0, ndv_1, …) sidestep any quoting quirks between
+  // the DuckDB alias and the JS object key returned by the wasm client when
+  // column names contain special characters or unusual casing.
   const selectList = columns
-    .map(
-      (c) =>
-        `approx_count_distinct(${quoteIdent(c)}) AS ${quoteIdent("ndv_" + c)}`,
-    )
+    .map((c, i) => `approx_count_distinct(${quoteIdent(c)}) AS ndv_${i}`)
     .join(", ");
   const ndvRows = await runSql(`SELECT ${selectList} FROM ${sub}`);
   const row = ndvRows[0] ?? {};
   const ndv: Record<string, number> = {};
-  for (const c of columns) {
-    const v = row["ndv_" + c];
-    ndv[c] = typeof v === "bigint" ? Number(v) : Number(v ?? 0);
+  for (let i = 0; i < columns.length; i++) {
+    const v = row["ndv_" + i];
+    ndv[columns[i]] =
+      typeof v === "bigint" ? Number(v) : Number(v ?? 0);
   }
-  return { columns, ndv };
+  return { columns, ndv, types };
 }
 
 function pickDefaultPk(ndv: Record<string, number>): string[] {
@@ -375,11 +501,28 @@ function injectStyle(css: string) {
   document.head.appendChild(s);
 }
 
+// Name of the sentinel we plant on window once the Univer runtime deps and
+// UMDs have been evaluated exactly once. We check it BEFORE the module-level
+// _univerLoadPromise because the module itself may be re-evaluated by the
+// MotherDuck Dive host (swap-in of a new version, iframe remount after a
+// React error, HMR in dev), which resets module state back to null while
+// `window` state — including redi's REDI_GLOBAL_LOCK — persists. Without
+// this window-level guard the second module eval re-runs DEP_BLOB, which
+// re-evaluates redi.js and trips its "loaded more than once" warning.
+const UNIVER_RUNTIME_READY_KEY = "__DIVE_UNIVER_RUNTIME_READY__";
+
 let _univerLoadPromise: Promise<any> | null = null;
 async function loadUniverRuntime() {
   if (_univerLoadPromise) return _univerLoadPromise;
+  const g: any = window;
+  if (g[UNIVER_RUNTIME_READY_KEY]) {
+    // Deps + UMDs already evaluated by a prior module incarnation. Reuse
+    // the globals they registered (window.UniverCore, window.UniverSheets,
+    // redi, rxjs, etc.) instead of loading them a second time.
+    _univerLoadPromise = Promise.resolve(g);
+    return _univerLoadPromise;
+  }
   _univerLoadPromise = (async () => {
-    const g: any = window;
 
     // The dive sandbox only exposes {react, react-dom, react-dom/client} — it
     // does NOT expose react/jsx-runtime. Univer's UMDs ask for globalThis.React
@@ -419,7 +562,19 @@ async function loadUniverRuntime() {
     g.ReactDOM = Object.assign({}, ReactDOM, ReactDOMClient);
 
     const deps = await decompressBlob(DEP_BLOB);
-    for (const { name, code } of deps) execInGlobalScope(code, `univer-dep/${name}`);
+    for (const { name, code } of deps) {
+      // Skip any dep that's already been evaluated on this window. This
+      // matters most for redi — it plants a REDI_GLOBAL_LOCK sentinel the
+      // second any instance of it evaluates, and a second eval triggers a
+      // console.error even if the two copies are identical. The Dive host
+      // harness may also pre-load redi for its own wiring; in that case
+      // Univer's UMDs will reuse the host's `window.redi` and everything
+      // is fine.
+      if (name === "redi.js" && (g.redi || g.REDI_GLOBAL_LOCK)) {
+        continue;
+      }
+      execInGlobalScope(code, `univer-dep/${name}`);
+    }
 
     for (let i = 0; i < UNIVER_SCRIPTS.length; i++) {
       execInGlobalScope(UNIVER_SCRIPTS[i], `univer-pkg/${i}.js`);
@@ -435,6 +590,9 @@ async function loadUniverRuntime() {
 
     for (const css of CSS_FILES) injectStyle(css);
 
+    // Mark the runtime as loaded at the window level so any future module
+    // re-evaluation short-circuits before re-running redi/rxjs/Univer.
+    g[UNIVER_RUNTIME_READY_KEY] = true;
     return g;
   })();
   return _univerLoadPromise;
@@ -504,10 +662,40 @@ function buildSnapshot(rows: Row[]): any {
   };
 }
 
+// ---------- pre-mutation old-value capture ----------
+// set-range-values fires a `BeforeCommandExecute` pass before the mutation and
+// a `CommandExecuted` pass after. We snapshot the pre-mutation values here so
+// handleCellMutation can reference the OLD value of edited PK columns when
+// building the UPDATE WHERE clause (rowRecord read post-mutation would contain
+// the new value).
+const preMutationOldValues: Record<string, unknown> = {};
+
+function capturePreMutationValues(api: any, params: any): void {
+  if (isProgrammaticWrite()) return;
+  const cellValue = params?.cellValue;
+  if (!cellValue || typeof cellValue !== "object") return;
+  const wb = api.getActiveWorkbook?.();
+  const ws = wb?.getActiveSheet?.();
+  if (!ws) return;
+  for (const k of Object.keys(preMutationOldValues)) delete preMutationOldValues[k];
+  for (const rowStr of Object.keys(cellValue)) {
+    const row = Number(rowStr);
+    if (!Number.isFinite(row)) continue;
+    const cols = cellValue[rowStr] ?? {};
+    for (const colStr of Object.keys(cols)) {
+      const col = Number(colStr);
+      if (!Number.isFinite(col)) continue;
+      const v = ws.getRange(row, col, 1, 1).getValues?.()?.[0]?.[0];
+      preMutationOldValues[`${row}:${col}`] = v;
+    }
+  }
+}
+
 // ---------- pre-mutation veto (PK completeness) ----------
 // Returns true if this mutation must be cancelled because it edits a non-PK
 // cell on a row whose primary key is incomplete.
 function vetoIfPkIncomplete(api: any, params: any): string | null {
+  if (isProgrammaticWrite()) return null;
   const cellValue = params?.cellValue;
   if (!cellValue || typeof cellValue !== "object") return null;
   const wb = api.getActiveWorkbook?.();
@@ -604,6 +792,7 @@ function extractNewValue(cell: any): unknown {
 }
 
 function handleCellMutation(api: any, params: any): void {
+  if (isProgrammaticWrite()) return;
   const cellValue = params?.cellValue;
   if (!cellValue || typeof cellValue !== "object") return;
   const wb = api.getActiveWorkbook?.();
@@ -682,13 +871,94 @@ function handleCellMutation(api: any, params: any): void {
         continue;
       }
 
+      // For PK columns edited in this same batch, rowRecord contains the NEW
+      // value. The UPDATE WHERE clause must reference the OLD (pre-mutation)
+      // value so the right row is matched.
       const pk: Record<string, unknown> = {};
-      for (const c of meta.pkColumns) pk[c] = rowRecord[c];
+      for (const c of meta.pkColumns) {
+        const colIdx = headers.indexOf(c);
+        const absCol = info.range.startColumn + colIdx;
+        const preKey = `${row}:${absCol}`;
+        const isEditedInBatch =
+          colIdx >= 0 && cols[String(absCol)] !== undefined;
+        pk[c] =
+          isEditedInBatch && preKey in preMutationOldValues
+            ? preMutationOldValues[preKey]
+            : rowRecord[c];
+      }
       const pkKey = pkKeyOf(meta.pkColumns, rowRecord);
 
+      const editedPreKey = `${row}:${col}`;
+      const preEditValue =
+        editedPreKey in preMutationOldValues
+          ? preMutationOldValues[editedPreKey]
+          : newValue;
       const store = readEditStore(meta.storageKey);
       const prev = store.overlays[pkKey]?.[columnName];
-      const originalValue = prev?.original ?? newValue;
+
+      // Blank deletes split two ways, neither of which stores a
+      // `value: null` overlay. The overlay map exists to record the delta
+      // between the sheet and the DB; a null overlay for a cleared cell
+      // just duplicates what the UPDATE already says.
+      //
+      //   A) prev overlay exists  → "undo my edit": remove the overlay
+      //      entry, paint prev.original back, skip UPDATE logging (the DB
+      //      never diverged).
+      //   B) no prev overlay      → the user is clearing a live DB cell:
+      //      log SET col = NULL, but DO NOT persist an overlay. Also
+      //      defensively prune any ghost entry so the store stays clean.
+      const isBlankDelete =
+        !meta.pkColumns.includes(columnName) &&
+        (newValue == null || newValue === "");
+      if (isBlankDelete) {
+        if (prev) {
+          const restoredOriginal = prev.original;
+          delete store.overlays[pkKey][columnName];
+          if (Object.keys(store.overlays[pkKey]).length === 0) {
+            delete store.overlays[pkKey];
+          }
+          writeEditStore(meta.storageKey, store);
+          runProgrammaticSync(() => {
+            ws.getRange(row, col, 1, 1).setValues([[restoredOriginal as any]]);
+          });
+          if (meta.mode === "query") {
+            applyOverlayMarker(ws, row, col, false);
+          }
+          console.log("[dive:restored-from-overlay]", {
+            storageKey: meta.storageKey,
+            pkKey,
+            column: columnName,
+            restoredTo: restoredOriginal,
+          });
+          continue;
+        }
+        // Case B — no prior overlay. Clear any residual entry under this
+        // (pkKey, column) just in case, then log the SET … = NULL. The
+        // overlay map stays unchanged in the common path (no entry there
+        // to begin with).
+        if (store.overlays[pkKey]?.[columnName] !== undefined) {
+          delete store.overlays[pkKey][columnName];
+          if (Object.keys(store.overlays[pkKey]).length === 0) {
+            delete store.overlays[pkKey];
+          }
+          writeEditStore(meta.storageKey, store);
+        }
+        if (meta.mode === "direct") {
+          console.log(
+            "[dive:would-update]",
+            buildUpdateSql(meta as DirectSource, columnName, newValue, pk),
+          );
+        } else {
+          console.log("[dive:query-clear]", {
+            storageKey: meta.storageKey,
+            pkKey,
+            column: columnName,
+          });
+        }
+        continue;
+      }
+
+      const originalValue = prev?.original ?? preEditValue;
       store.overlays[pkKey] = store.overlays[pkKey] ?? {};
       store.overlays[pkKey][columnName] = {
         value: newValue,
@@ -703,6 +973,7 @@ function handleCellMutation(api: any, params: any): void {
           buildUpdateSql(meta as DirectSource, columnName, newValue, pk),
         );
       } else {
+        applyOverlayMarker(ws, row, col, true);
         console.log("[dive:query-overlay]", {
           storageKey: meta.storageKey,
           pkKey,
@@ -712,6 +983,224 @@ function handleCellMutation(api: any, params: any): void {
       }
     }
   }
+}
+
+// ---------- auto-fill PKs on newly-inserted rows ----------
+// Fired after any row-insert command (sheet.command.table-insert-row or
+// sheet.mutation.insert-row). Any fully-blank data row that falls within a
+// bound table's range is treated as freshly inserted; its PK columns are
+// populated with generated values so uniqueness is guaranteed before the user
+// types into the row.
+//
+// Note: `sheet.command.table-insert-row` extends the table's registered range
+// to include the new rows. Generic `insert-row-*` commands do NOT extend the
+// table's range (they either shift the table fully down or leave it untouched
+// while inserting rows in its data region), so this handler mostly operates on
+// the table-insert-row path; the mutation listener is a defensive catch.
+function autoFillNewRowPks(api: any): void {
+  // Refresh/bind use insertRowsAfter under the hood, which fires insert-row
+  // mutations. Those are NOT user-initiated row additions — the rows they
+  // created will immediately be overwritten by the refresh's setValues, so
+  // filling PKs here would race with that write and corrupt the paint.
+  if (isProgrammaticWrite()) return;
+  const wb = api.getActiveWorkbook?.();
+  const ws = wb?.getActiveSheet?.();
+  if (!ws) {
+    console.debug("[dive:autofill] no worksheet");
+    return;
+  }
+  const reg = readSourcesRegistry();
+  if (Object.keys(reg).length === 0) {
+    console.debug("[dive:autofill] no bound sources");
+    return;
+  }
+
+  const infos: any[] = ws.getSubTableInfos?.() ?? [];
+  console.debug("[dive:autofill] scanning", {
+    tableCount: infos.length,
+    sources: Object.keys(reg),
+  });
+  for (const info of infos) {
+    const meta = reg[info.id];
+    if (!meta) continue;
+    if (!meta.pkColumns || meta.pkColumns.length === 0) continue;
+    const pkTypes = meta.pkTypes ?? {};
+
+    const { startRow, endRow, startColumn, endColumn } = info.range;
+    const width = endColumn - startColumn + 1;
+
+    const headerVals =
+      ws.getRange(startRow, startColumn, 1, width).getValues?.()?.[0] ?? [];
+    const headers = headerVals.map((v: any) => (v == null ? "" : String(v)));
+    const pkColIndexes = meta.pkColumns.map((c) => headers.indexOf(c));
+    if (pkColIndexes.some((i) => i < 0)) continue;
+
+    const isBlank = (v: any): boolean => {
+      if (v == null) return true;
+      if (v === "") return true;
+      if (typeof v === "object") {
+        const inner = "v" in v ? v.v : undefined;
+        return inner == null || inner === "";
+      }
+      return false;
+    };
+
+    for (let r = startRow + 1; r <= endRow; r++) {
+      const rowVals =
+        ws.getRange(r, startColumn, 1, width).getValues?.()?.[0] ?? [];
+      // Treat a row as "newly inserted" only when every cell in the table
+      // width is blank. That protects against accidentally overwriting PKs
+      // on source-loaded rows where the PK column happens to be empty.
+      const allEmpty = rowVals.every((v: any) => isBlank(v));
+      if (!allEmpty) continue;
+
+      runProgrammaticSync(() => {
+        for (let i = 0; i < meta.pkColumns.length; i++) {
+          const col = meta.pkColumns[i];
+          const absCol = startColumn + pkColIndexes[i];
+          const ty = pkTypes[col] ?? "VARCHAR";
+          const val = generatePkValue(ty);
+          ws.getRange(r, absCol, 1, 1).setValues([[val]]);
+        }
+        console.log("[dive:pk-autofill]", {
+          storageKey: meta.storageKey,
+          row: r,
+          pkColumns: meta.pkColumns,
+        });
+      });
+    }
+  }
+}
+
+// ---------- row-deletion SQL logging ----------
+// table-remove-row shifts remaining rows up after deleting, so PK values must
+// be captured BEFORE the command runs. We stash them in BeforeCommandExecute
+// and flush DELETE SQL in CommandExecuted once the removal has succeeded.
+type PendingDelete = { meta: SourceMeta; pk: Record<string, unknown> };
+let pendingDeletes: PendingDelete[] = [];
+
+function capturePendingDeletes(api: any, params?: any): void {
+  if (isProgrammaticWrite()) return;
+  pendingDeletes = [];
+  const wb = api.getActiveWorkbook?.();
+  const ws = wb?.getActiveSheet?.();
+  if (!ws) return;
+  const reg = readSourcesRegistry();
+  if (Object.keys(reg).length === 0) return;
+
+  let selStartRow: number | undefined;
+  let selStartCol: number | undefined;
+  let selEndRow: number | undefined;
+  let selEndCol: number | undefined;
+
+  // Prefer the explicit range carried by commands like remove-row-by-range
+  // over the cursor's active selection, since the two can diverge.
+  const paramRange = params?.range;
+  if (
+    paramRange &&
+    typeof paramRange.startRow === "number" &&
+    typeof paramRange.endRow === "number"
+  ) {
+    selStartRow = paramRange.startRow;
+    selEndRow = paramRange.endRow;
+    selStartCol = paramRange.startColumn ?? 0;
+    selEndCol =
+      paramRange.endColumn ??
+      (ws.getMaxColumns?.() ?? paramRange.startColumn ?? 0) - 1;
+  } else {
+    const active = ws.getActiveRange?.() ?? wb.getActiveRange?.();
+    if (!active) {
+      console.debug("[dive:delete-event] no active range");
+      return;
+    }
+    const r = active.getRow?.();
+    const rc = active.getRowCount?.();
+    const c = active.getColumn?.();
+    const cc = active.getColumnCount?.();
+    if (r == null || rc == null || c == null || cc == null) return;
+    selStartRow = r;
+    selEndRow = r + rc - 1;
+    selStartCol = c;
+    selEndCol = c + cc - 1;
+  }
+  if (
+    selStartRow == null ||
+    selEndRow == null ||
+    selStartCol == null ||
+    selEndCol == null
+  ) {
+    return;
+  }
+
+  const infos: any[] = ws.getSubTableInfos?.() ?? [];
+  for (const info of infos) {
+    const meta = reg[info.id];
+    if (!meta) continue;
+    const tStart = info.range.startRow;
+    const tEnd = info.range.endRow;
+    const tColStart = info.range.startColumn;
+    const tColEnd = info.range.endColumn;
+    // Row overlap (skip the header row)
+    const overlapStart = Math.max(selStartRow, tStart + 1);
+    const overlapEnd = Math.min(selEndRow, tEnd);
+    if (overlapStart > overlapEnd) continue;
+    // Column overlap (selection must touch the table horizontally)
+    if (
+      Math.max(selStartCol, tColStart) > Math.min(selEndCol, tColEnd)
+    ) {
+      continue;
+    }
+
+    const width = tColEnd - tColStart + 1;
+    const headerVals =
+      ws.getRange(tStart, tColStart, 1, width).getValues?.()?.[0] ?? [];
+    const headers = headerVals.map((v: any) => (v == null ? "" : String(v)));
+    const pkIdx = meta.pkColumns.map((c) => headers.indexOf(c));
+    if (pkIdx.some((i) => i < 0)) continue;
+
+    for (let r = overlapStart; r <= overlapEnd; r++) {
+      const rowVals =
+        ws.getRange(r, tColStart, 1, width).getValues?.()?.[0] ?? [];
+      const pk: Record<string, unknown> = {};
+      let complete = true;
+      for (let i = 0; i < meta.pkColumns.length; i++) {
+        const v = rowVals[pkIdx[i]];
+        if (v == null || v === "") {
+          complete = false;
+          break;
+        }
+        pk[meta.pkColumns[i]] = v;
+      }
+      if (!complete) continue;
+      pendingDeletes.push({ meta, pk });
+    }
+  }
+}
+
+function flushPendingDeletes(): void {
+  if (isProgrammaticWrite()) return;
+  for (const { meta, pk } of pendingDeletes) {
+    if (meta.mode === "direct") {
+      console.log(
+        "[dive:would-delete]",
+        buildDeleteSql(meta as DirectSource, pk),
+      );
+    } else {
+      console.log("[dive:query-delete]", {
+        storageKey: meta.storageKey,
+        pk,
+      });
+    }
+    // Drop any overlay entries for a deleted PK so they can't re-apply on a
+    // later refresh (the row no longer exists).
+    const store = readEditStore(meta.storageKey);
+    const pkKey = pkKeyOf(meta.pkColumns, pk);
+    if (store.overlays[pkKey]) {
+      delete store.overlays[pkKey];
+      writeEditStore(meta.storageKey, store);
+    }
+  }
+  pendingDeletes = [];
 }
 
 // ---------- bind source → sheet ----------
@@ -742,48 +1231,115 @@ async function addTableToSheet(
   runSql: RunSql,
   meta: SourceMeta,
 ): Promise<string> {
+  // Source data is fetched outside the programmatic guard (pure SQL, no sheet
+  // writes yet). Only the paint/addTable phase needs to bypass edit tracking.
   const { columns, rows } = await fetchSource(runSql, meta);
   if (columns.length === 0) {
     throw new Error("Source returned no columns");
   }
-  const wb = api.getActiveWorkbook();
-  const ws = wb.getActiveSheet();
+  return runProgrammatic(async () => {
+    const wb = api.getActiveWorkbook();
+    const ws = wb.getActiveSheet();
 
-  const existing: any[] = ws.getSubTableInfos?.() ?? [];
-  const startRow =
-    existing.length === 0
-      ? 0
-      : Math.max(...existing.map((t: any) => t.range?.endRow ?? 0)) + 3;
-  const startCol = 0;
+    const existing: any[] = ws.getSubTableInfos?.() ?? [];
+    const startRow =
+      existing.length === 0
+        ? 0
+        : Math.max(...existing.map((t: any) => t.range?.endRow ?? 0)) + 3;
+    const startCol = 0;
 
-  const values: any[][] = [columns.slice()];
-  for (const r of rows) {
-    values.push(columns.map((c) => coerceCell(r?.[c])));
+    const values: any[][] = [columns.slice()];
+    for (const r of rows) {
+      values.push(columns.map((c) => coerceCell(r?.[c])));
+    }
+
+    ensureSheetCapacity(ws, startRow, startCol, values.length, columns.length);
+
+    const range = ws.getRange(
+      startRow,
+      startCol,
+      values.length,
+      columns.length,
+    );
+    range.setValues(values);
+
+    const endRow = startRow + values.length - 1;
+    const endCol = startCol + columns.length - 1;
+
+    const tableId = genTableId();
+    const tableName =
+      meta.mode === "direct"
+        ? `${meta.database}_${meta.schema}_${meta.table}`.replace(
+            /[^a-zA-Z0-9_]/g,
+            "_",
+          )
+        : meta.name.replace(/[^a-zA-Z0-9_]/g, "_") || "query";
+
+    await ws.addTable(
+      tableName,
+      { startRow, startColumn: startCol, endRow, endColumn: endCol },
+      tableId,
+    );
+    await applyDiveTableTheme(ws, tableId);
+    return tableId;
+  });
+}
+
+// Pale-amber tint applied to a single cell whenever a QUERY-mode overlay is
+// written to it. Mirrors Excel's "comment triangle" convention — a subtle
+// visual flag that the displayed value diverges from the SQL source. Only
+// query-mode sources get marked; direct-mode edits are pending UPDATE SQL
+// against the DB, not purely local overrides.
+const OVERLAY_MARKER_BG = "#FFF8E1";
+
+function applyOverlayMarker(
+  ws: any,
+  row: number,
+  col: number,
+  on: boolean,
+): void {
+  // setBackgroundColor dispatches a set-style mutation. Gate it so it
+  // doesn't re-enter the edit-tracking listeners.
+  runProgrammaticSync(() => {
+    try {
+      const range = ws.getRange(row, col, 1, 1);
+      if (on) {
+        range.setBackgroundColor?.(OVERLAY_MARKER_BG);
+      } else {
+        // Revert to the table theme's banded color by clearing the
+        // cell-level bg override.
+        range.setBackgroundColor?.(null);
+      }
+    } catch (e) {
+      console.warn("[dive] overlay marker set failed", e);
+    }
+  });
+}
+
+// Univer's built-in table themes use saturated alternating backgrounds (e.g.
+// `#BAC6F8`), which read as loud in a data-exploration context. This subtler
+// theme uses a near-white second row (`#F9FAFB`) plus a HAIR border under the
+// header so the striping registers without dominating.
+//
+// Each bound table gets its own theme entry (keyed by tableId) so calls are
+// idempotent across tables within the same workbook.
+async function applyDiveTableTheme(ws: any, tableId: string): Promise<void> {
+  const hairBorder = { s: 2, cl: { rgb: "#E5E7EB" } }; // BorderStyleTypes.HAIR = 2
+  try {
+    await ws.addTableTheme?.(tableId, {
+      name: `dive-subtle-${tableId}`,
+      headerRowStyle: {
+        bg: { rgb: "#F6F7F9" },
+        cl: { rgb: "#111827" },
+        bd: { b: hairBorder },
+      },
+      firstRowStyle: { bg: { rgb: "#FFFFFF" } },
+      secondRowStyle: { bg: { rgb: "#F9FAFB" } },
+      lastRowStyle: { bd: { b: hairBorder } },
+    });
+  } catch (e) {
+    console.warn("[dive] table theme apply failed", e);
   }
-
-  ensureSheetCapacity(ws, startRow, startCol, values.length, columns.length);
-
-  const range = ws.getRange(startRow, startCol, values.length, columns.length);
-  range.setValues(values);
-
-  const endRow = startRow + values.length - 1;
-  const endCol = startCol + columns.length - 1;
-
-  const tableId = genTableId();
-  const tableName =
-    meta.mode === "direct"
-      ? `${meta.database}_${meta.schema}_${meta.table}`.replace(
-          /[^a-zA-Z0-9_]/g,
-          "_",
-        )
-      : meta.name.replace(/[^a-zA-Z0-9_]/g, "_") || "query";
-
-  await ws.addTable(
-    tableName,
-    { startRow, startColumn: startCol, endRow, endColumn: endCol },
-    tableId,
-  );
-  return tableId;
 }
 
 // ---------- refresh a bound table ----------
@@ -792,13 +1348,29 @@ async function refreshSource(
   runSql: RunSql,
   tableId: string,
   meta: SourceMeta,
+  ws?: any,
 ): Promise<{ stale: number }> {
   const wb = api.getActiveWorkbook?.();
-  const ws = wb?.getActiveSheet?.();
-  if (!ws) throw new Error("No active worksheet");
+  // The table may live on a sheet other than the active one. Prefer the
+  // worksheet passed in, fall back to locating it by the subUnitId on the
+  // table info. Writing with the active sheet would corrupt the current view
+  // by painting source data into whichever cells happen to share coordinates.
+  let worksheet = ws;
+  const infoFromBook = wb?.getTableInfo?.(tableId);
+  if (!worksheet && infoFromBook?.subUnitId && wb) {
+    worksheet =
+      wb.getSheetBySheetId?.(infoFromBook.subUnitId) ??
+      (wb.getSheets?.() ?? []).find(
+        (s: any) => s.getSheetId?.() === infoFromBook.subUnitId,
+      );
+  }
+  if (!worksheet) worksheet = wb?.getActiveSheet?.();
+  if (!worksheet) throw new Error("No active worksheet");
   const info =
-    wb.getTableInfo?.(tableId) ??
-    (ws.getSubTableInfos?.() ?? []).find((t: any) => t.id === tableId);
+    infoFromBook ??
+    (worksheet.getSubTableInfos?.() ?? []).find(
+      (t: any) => t.id === tableId,
+    );
   if (!info) throw new Error(`Table ${tableId} not found`);
 
   const { columns, rows } = await fetchSource(runSql, meta);
@@ -812,7 +1384,7 @@ async function refreshSource(
   // Preserve the existing column order if it matches the newly returned set;
   // otherwise adopt the new columns.
   const existingHeaders: string[] = (
-    ws
+    worksheet
       .getRange(startRow, startCol, 1, oldEndCol - startCol + 1)
       .getValues?.()?.[0] ?? []
   ).map((v: any) => (v == null ? "" : String(v)));
@@ -828,6 +1400,7 @@ async function refreshSource(
 
   const store = readEditStore(meta.storageKey);
   const liveKeys = new Set<string>();
+  const overlayCells: Array<{ row: number; col: number }> = [];
   for (let i = 1; i < newValues.length; i++) {
     const rowRecord: Record<string, unknown> = {};
     for (let j = 0; j < colsToUse.length; j++) {
@@ -839,7 +1412,13 @@ async function refreshSource(
     if (overlay) {
       for (const [colName, ov] of Object.entries(overlay)) {
         const ci = colsToUse.indexOf(colName);
-        if (ci >= 0) newValues[i][ci] = ov.value as any;
+        if (ci >= 0) {
+          newValues[i][ci] = ov.value as any;
+          overlayCells.push({
+            row: startRow + i,
+            col: startCol + ci,
+          });
+        }
       }
     }
   }
@@ -855,53 +1434,106 @@ async function refreshSource(
   }
   writeEditStore(meta.storageKey, store);
 
-  // Clear the old (possibly larger) range before writing new values so rows
-  // that disappeared don't linger.
-  const clearRange = ws.getRange(
-    startRow,
-    startCol,
-    oldEndRow - startRow + 1,
-    oldEndCol - startCol + 1,
-  );
-  const blank: any[][] = Array.from(
-    { length: oldEndRow - startRow + 1 },
-    () => Array(oldEndCol - startCol + 1).fill(null),
-  );
-  clearRange.setValues?.(blank);
-
-  ensureSheetCapacity(
-    ws,
-    startRow,
-    startCol,
-    newValues.length,
-    colsToUse.length,
-  );
-  ws.getRange(startRow, startCol, newValues.length, colsToUse.length).setValues(
-    newValues,
-  );
-
-  const newEndRow = startRow + newValues.length - 1;
-  const newEndCol = startCol + colsToUse.length - 1;
-  if (newEndRow !== oldEndRow || newEndCol !== oldEndCol) {
-    await ws.setTableRange?.(tableId, {
+  // Every sheet write below goes through set-range-values / insert-row
+  // mutations — the same path as a user edit. Guard the whole paint so the
+  // listeners (veto, handleCellMutation, autoFillNewRowPks) short-circuit.
+  await runProgrammatic(async () => {
+    // Clear the old (possibly larger) range before writing new values so
+    // rows that disappeared don't linger.
+    const clearRange = worksheet.getRange(
       startRow,
-      startColumn: startCol,
-      endRow: newEndRow,
-      endColumn: newEndCol,
-    });
-  }
+      startCol,
+      oldEndRow - startRow + 1,
+      oldEndCol - startCol + 1,
+    );
+    const blank: any[][] = Array.from(
+      { length: oldEndRow - startRow + 1 },
+      () => Array(oldEndCol - startCol + 1).fill(null),
+    );
+    clearRange.setValues?.(blank);
+
+    ensureSheetCapacity(
+      worksheet,
+      startRow,
+      startCol,
+      newValues.length,
+      colsToUse.length,
+    );
+    worksheet
+      .getRange(startRow, startCol, newValues.length, colsToUse.length)
+      .setValues(newValues);
+
+    const newEndRow = startRow + newValues.length - 1;
+    const newEndCol = startCol + colsToUse.length - 1;
+    if (newEndRow !== oldEndRow || newEndCol !== oldEndCol) {
+      await worksheet.setTableRange?.(tableId, {
+        startRow,
+        startColumn: startCol,
+        endRow: newEndRow,
+        endColumn: newEndCol,
+      });
+    }
+    // Re-apply the subtle theme so workbooks saved with the default loud
+    // striping upgrade on first refresh after this dive version.
+    await applyDiveTableTheme(worksheet, tableId);
+
+    // Re-mark query-mode overlay cells. Direct-mode overlays are pending
+    // UPDATE SQL, not local overrides, so they aren't flagged.
+    if (meta.mode === "query") {
+      for (const { row, col } of overlayCells) {
+        applyOverlayMarker(worksheet, row, col, true);
+      }
+    }
+  });
   return { stale: staleCount };
 }
 
-async function refreshAllSources(api: any, runSql: RunSql): Promise<void> {
+// Refresh only the bound tables that live on the currently active sheet.
+async function refreshActiveSheetSources(
+  api: any,
+  runSql: RunSql,
+): Promise<void> {
+  const wb = api.getActiveWorkbook?.();
+  const ws = wb?.getActiveSheet?.();
+  if (!ws) return;
   const reg = readSourcesRegistry();
-  for (const [tableId, meta] of Object.entries(reg)) {
-    try {
-      await refreshSource(api, runSql, tableId, meta);
-    } catch (e) {
-      console.warn(`[dive:refresh] ${tableId} failed`, e);
+  const sheetTables: any[] = ws.getSubTableInfos?.() ?? [];
+  // Outer wrap keeps the guard engaged between per-table refreshes, so any
+  // deferred (setTimeout-scheduled) listeners that fire during an await
+  // still see depth > 0 and short-circuit.
+  await runProgrammatic(async () => {
+    for (const info of sheetTables) {
+      const meta = reg[info.id];
+      if (!meta) continue;
+      try {
+        await refreshSource(api, runSql, info.id, meta, ws);
+      } catch (e) {
+        console.warn(`[dive:refresh] ${info.id} failed`, e);
+      }
     }
-  }
+  });
+}
+
+// Refresh every bound table across every sheet in the workbook.
+async function refreshAllSources(api: any, runSql: RunSql): Promise<void> {
+  const wb = api.getActiveWorkbook?.();
+  if (!wb) return;
+  const reg = readSourcesRegistry();
+  const sheets: any[] = wb.getSheets?.() ?? [];
+  await runProgrammatic(async () => {
+    for (const sheet of sheets) {
+      const tables: any[] = sheet.getSubTableInfos?.() ?? [];
+      for (const info of tables) {
+        const meta = reg[info.id];
+        if (!meta) continue;
+        try {
+          await refreshSource(api, runSql, info.id, meta, sheet);
+        } catch (e) {
+          console.warn(`[dive:refresh] ${info.id} failed`, e);
+        }
+      }
+    }
+  });
 }
 
 // ---------- Add Source modal ----------
@@ -924,11 +1556,16 @@ function AddSourceModal(props: {
   const [probeErr, setProbeErr] = useState<string>("");
   const [columns, setColumns] = useState<string[]>([]);
   const [ndv, setNdv] = useState<Record<string, number>>({});
+  const [columnTypes, setColumnTypes] = useState<Record<string, string>>({});
   const [pkColumns, setPkColumns] = useState<string[]>([]);
 
   if (!open) return null;
 
   const buildSpec = (): SourceMeta => {
+    const pkTypes: Record<string, string> = {};
+    for (const c of pkColumns) {
+      if (columnTypes[c]) pkTypes[c] = columnTypes[c];
+    }
     if (mode === "direct") {
       const parts = tableRef.trim().split(".");
       if (parts.length !== 3) {
@@ -941,6 +1578,7 @@ function AddSourceModal(props: {
         schema,
         table,
         pkColumns,
+        pkTypes,
         storageKey: `${database}.${schema}.${table}`,
       };
     }
@@ -950,6 +1588,7 @@ function AddSourceModal(props: {
       sql: sqlText,
       name: n,
       pkColumns,
+      pkTypes,
       storageKey: `query:${n}`,
     };
   };
@@ -963,12 +1602,14 @@ function AddSourceModal(props: {
     setProbeErr("");
     setColumns([]);
     setNdv({});
+    setColumnTypes({});
     setPkColumns([]);
     try {
       const spec = buildSpec();
-      const { columns, ndv } = await probeSource(runSql, spec);
+      const { columns, ndv, types } = await probeSource(runSql, spec);
       setColumns(columns);
       setNdv(ndv);
+      setColumnTypes(types);
       setPkColumns(pickDefaultPk(ndv));
     } catch (e: any) {
       setProbeErr(String(e?.message ?? e));
@@ -1098,7 +1739,10 @@ function AddSourceModal(props: {
                     }}
                   />{" "}
                   {c}{" "}
-                  <span style={{ color: "#888" }}>
+                  <span
+                    style={{ color: "#888" }}
+                    data-testid={`ndv-${c}`}
+                  >
                     (≈{ndv[c] ?? "?"} distinct)
                   </span>
                 </label>
@@ -1176,19 +1820,50 @@ export default function UniverDive() {
     }
   };
 
-  const handleRefreshAll = async () => {
+  const handleRefreshCurrentSheet = async () => {
     const api = univerRef.current?.api;
     if (!api) return;
     setRefreshing(true);
     try {
-      await refreshAllSources(api, runSql);
-      setToast("Sources refreshed");
+      await refreshActiveSheetSources(api, runSql);
+      setToast("Current sheet refreshed (tables and SQL queries)");
     } catch (e: any) {
       setToast(String(e?.message ?? e));
     } finally {
       setRefreshing(false);
     }
   };
+
+  const handleRefreshAll = async () => {
+    const api = univerRef.current?.api;
+    if (!api) return;
+    setRefreshing(true);
+    try {
+      await refreshAllSources(api, runSql);
+      setToast("All sources refreshed (tables and SQL queries)");
+    } catch (e: any) {
+      setToast(String(e?.message ?? e));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Expose ribbon-menu actions on window so the menu entries (registered
+  // inside initUniver, outside the React tree) can invoke the latest React
+  // state setters. The menu commands are registered once with static action
+  // closures that indirect through this global.
+  useEffect(() => {
+    (window as any).__univerDiveActions = {
+      openAddSource: () => setModalOpen(true),
+      refreshCurrentSheet: () => handleRefreshCurrentSheet(),
+      refreshAll: () => handleRefreshAll(),
+    };
+    return () => {
+      if ((window as any).__univerDiveActions) {
+        delete (window as any).__univerDiveActions;
+      }
+    };
+  });
 
   // Auto-refresh bound sources once the workbook + SQL runner are both ready.
   const didAutoRefresh = useRef(false);
@@ -1393,10 +2068,36 @@ export default function UniverDive() {
     // CommandType enum: 0 = COMMAND, 1 = OPERATION, 2 = MUTATION.
     try {
       api.addEvent(api.Event.CommandExecuted, (ev: any) => {
-        if (ev?.type !== 2) return;
-        scheduleSave();
-        if (ev.id === "sheet.mutation.set-range-values") {
-          handleCellMutation(api, ev.params);
+        if (ev?.type === 2) {
+          scheduleSave();
+          if (ev.id === "sheet.mutation.set-range-values") {
+            handleCellMutation(api, ev.params);
+          } else if (ev.id === "sheet.mutation.insert-row") {
+            // Generic insert path (via context-menu "Insert row" or
+            // programmatic commands) — scan bound tables for blank rows.
+            console.debug("[dive:insert-event]", ev.id, ev.params?.range);
+            setTimeout(() => autoFillNewRowPks(api), 0);
+          }
+        } else if (ev?.type === 0) {
+          if (
+            ev.id === "sheet.command.table-insert-row" ||
+            ev.id === "sheet.command.insert-row" ||
+            ev.id === "sheet.command.insert-row-before" ||
+            ev.id === "sheet.command.insert-row-after" ||
+            ev.id === "sheet.command.insert-multi-rows-above" ||
+            ev.id === "sheet.command.insert-multi-rows-after" ||
+            ev.id === "sheet.command.append-row"
+          ) {
+            console.debug("[dive:insert-event]", ev.id);
+            setTimeout(() => autoFillNewRowPks(api), 0);
+          } else if (
+            ev.id === "sheet.command.table-remove-row" ||
+            ev.id === "sheet.command.remove-row" ||
+            ev.id === "sheet.command.remove-row-by-range"
+          ) {
+            console.debug("[dive:delete-event]", ev.id, ev.params);
+            flushPendingDeletes();
+          }
         }
       });
     } catch (e) {
@@ -1406,6 +2107,14 @@ export default function UniverDive() {
 
     try {
       api.addEvent(api.Event.BeforeCommandExecute, (ev: any) => {
+        if (
+          ev.id === "sheet.command.table-remove-row" ||
+          ev.id === "sheet.command.remove-row" ||
+          ev.id === "sheet.command.remove-row-by-range"
+        ) {
+          capturePendingDeletes(api, ev.params);
+          return;
+        }
         if (
           ev.id !== "sheet.command.set-range-values" &&
           ev.id !== "sheet.mutation.set-range-values"
@@ -1418,10 +2127,55 @@ export default function UniverDive() {
           const toast = (window as any).__univerDiveToast;
           if (typeof toast === "function") toast(reason);
           console.warn("[dive:edit-rejected]", reason);
+          return;
         }
+        capturePreMutationValues(api, ev.params);
       });
     } catch (e) {
       console.warn("[UniverDive] before-event subscribe failed", e);
+    }
+
+    // Register Data-ribbon entries for source actions. Low (negative) orders
+    // push our items to the far-left of the Organization group, before
+    // built-ins like "Text to Number". Actions indirect through window.
+    try {
+      const invoke = (fnName: string) => () => {
+        const actions = (window as any).__univerDiveActions;
+        const fn = actions && actions[fnName];
+        if (typeof fn === "function") fn();
+      };
+      const dataOrg = "ribbon.data|ribbon.data.organization";
+      api
+        .createMenu({
+          id: "dive.addSource",
+          title: "+ Add Source",
+          tooltip: "Bind a MotherDuck table or SQL query as a sheet source",
+          action: invoke("openAddSource"),
+          order: -30,
+        })
+        .appendTo(dataOrg);
+      api
+        .createMenu({
+          id: "dive.refreshCurrentSheet",
+          title: "Refresh",
+          tooltip:
+            "Re-run MotherDuck tables and SQL queries bound to the current sheet",
+          action: invoke("refreshCurrentSheet"),
+          order: -29,
+        })
+        .appendTo(dataOrg);
+      api
+        .createMenu({
+          id: "dive.refreshAll",
+          title: "Refresh All",
+          tooltip:
+            "Re-run every bound MotherDuck table and SQL query across all sheets",
+          action: invoke("refreshAll"),
+          order: -28,
+        })
+        .appendTo(dataOrg);
+    } catch (e) {
+      console.warn("[UniverDive] menu registration failed", e);
     }
 
     univerRef.current = { univer, api, saveTimer };
@@ -1473,52 +2227,8 @@ export default function UniverDive() {
         data-testid="univer-container"
         style={{ flex: 1, minHeight: 0, position: "relative" }}
       />
-      {runtimeReady && !fatalError && (
-        // Overlay sibling of the container — children inside the container
-        // get wiped by Univer on mount, so render buttons outside of it.
-        <div
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 12,
-            zIndex: 10,
-            display: "flex",
-            gap: 6,
-          }}
-        >
-          <button
-            onClick={handleRefreshAll}
-            disabled={refreshing || !univerReady}
-            data-testid="refresh-sources-button"
-            style={{
-              padding: "4px 10px",
-              background: "#e9edff",
-              color: "#2d6cdf",
-              border: "1px solid #2d6cdf",
-              borderRadius: 4,
-              cursor: refreshing ? "wait" : "pointer",
-              fontSize: 12,
-            }}
-          >
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
-          <button
-            onClick={() => setModalOpen(true)}
-            data-testid="add-source-button"
-            style={{
-              padding: "4px 10px",
-              background: "#2d6cdf",
-              color: "white",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            + Add source
-          </button>
-        </div>
-      )}
+      {/* Source actions (Add / Refresh / Refresh All) live in the Data ribbon
+          now — registered inside initUniver via api.createMenu. */}
       <AddSourceModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
