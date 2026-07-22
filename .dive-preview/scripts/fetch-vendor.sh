@@ -3,8 +3,10 @@
 # scripts/build-dive.mjs can inline them. Re-run if UNIVER_VERSION changes.
 set -euo pipefail
 
-UNIVER_VERSION="${UNIVER_VERSION:-0.20.0}"
-PROTOCOL_VERSION="${PROTOCOL_VERSION:-0.1.48}"
+UNIVER_VERSION="${UNIVER_VERSION:-0.25.1}"
+# protocol & themes are version-locked to univer as of 0.25.x (protocol was
+# independently versioned — 0.1.x — before). Keep in lockstep with UNIVER_VERSION.
+PROTOCOL_VERSION="${PROTOCOL_VERSION:-0.25.1}"
 RXJS_VERSION="${RXJS_VERSION:-7.8.1}"
 REDI_VERSION="${REDI_VERSION:-1.1.1}"
 
